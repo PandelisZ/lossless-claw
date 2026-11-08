@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { ContextAssembler } from "../src/assembler.js";
 import { runLcmMigrations } from "../src/db/migration.js";
@@ -124,6 +124,95 @@ const config = {
 };
 
 describe("experimental remote canonical context storage", () => {
+  it("pins an active read while another writer advances the root and a newer read retires its projection", async () => {
+    const { store, transport, baseline } = await setup();
+    let release!: () => void, entered!: () => void;
+    const gate = new Promise<void>((r) => {
+        release = r;
+      }),
+      waiting = new Promise<void>((r) => {
+        entered = r;
+      });
+    const original = SummaryStore.prototype.getContextItems;
+    let first = true;
+    try {
+      const before = await store.assemble(assembly);
+      vi.spyOn(SummaryStore.prototype, "getContextItems").mockImplementation(
+        async function (this: SummaryStore, id) {
+          expect(
+            (this as any).db.prepare("PRAGMA query_only").get().query_only,
+          ).toBe(1);
+          const items = await original.call(this, id);
+          if (first) {
+            first = false;
+            entered();
+            await gate;
+          }
+          return items;
+        },
+      );
+      const active = store.assemble(assembly);
+      await waiting;
+      const writer = new TurbopufferContextStorage({
+        backend: "turbopuffer",
+        namespacePrefix: "synthetic-test",
+        organizationId: "org1",
+        agentId: "agent1",
+        conversationId: 1,
+        transport,
+      });
+      await writer.appendTurn("newer", [
+        { role: "user", content: "newer committed canary", tokenCount: 3 },
+      ]);
+      const after = await store.assemble(assembly);
+      expect(JSON.stringify(after.messages)).toContain(
+        "newer committed canary",
+      );
+      release();
+      expect(await active).toEqual(before);
+      writer.close();
+    } finally {
+      release();
+      vi.restoreAllMocks();
+      store.close();
+      baseline.db.close();
+    }
+  });
+
+  it("reuses a query-only committed projection, releases it on close and finishes active reads", async () => {
+    const { store, transport, baseline } = await setup();
+    try {
+      const expected = await store.assemble(assembly);
+      const initial = transport.reads.length;
+      expect(
+        await Promise.all([store.assemble(assembly), store.assemble(assembly)]),
+      ).toEqual([expected, expected]);
+      expect(
+        transport.reads
+          .slice(initial)
+          .every((ids) => ids.length === 1 && ids[0].startsWith("h:")),
+      ).toBe(true);
+      const originalRead = transport.read.bind(transport);
+      transport.read = async () => {
+        throw new Error("strong root unavailable");
+      };
+      await expect(store.assemble(assembly)).rejects.toThrow(
+        "strong root unavailable",
+      );
+      transport.read = originalRead;
+      const active = store.assemble(assembly);
+      // Allow the strong head lookup to finish and lease the read projection.
+      await Promise.resolve();
+      await Promise.resolve();
+      store.close();
+      expect(await active).toEqual(expected);
+      await expect(store.assemble(assembly)).rejects.toThrow("closed");
+    } finally {
+      store.close();
+      baseline.db.close();
+    }
+  });
+
   it("uses the provider's root patch count even when losing immutable inserts succeed", async () => {
     const transport = new TurbopufferTransport({
       apiKey: "synthetic-placeholder",
@@ -138,6 +227,11 @@ describe("experimental remote canonical context storage", () => {
       await transport.write({ upsert_rows: [], patch_rows: [{ id: "root" }] }),
     ).toEqual({ upserted: 4, patched: 0 });
     transport.request = async () => ({ rows_affected: 4, rows_upserted: 4 });
+    expect(await transport.write({ patch_rows: [{ id: "root" }] })).toEqual({
+      upserted: 4,
+      patched: 0,
+    });
+    transport.request = async () => ({ rows_affected: 5, rows_upserted: 4 });
     await expect(
       transport.write({ patch_rows: [{ id: "root" }] }),
     ).rejects.toThrow("reconcile outcome");
@@ -196,6 +290,7 @@ describe("experimental remote canonical context storage", () => {
         true,
       );
     } finally {
+      store.close();
       baseline.db.close();
     }
   });
@@ -213,6 +308,7 @@ describe("experimental remote canonical context storage", () => {
       ).rejects.toBeInstanceOf(UnknownCommit);
       expect([...transport.rows]).toEqual(before);
     } finally {
+      store.close();
       baseline.db.close();
     }
   });
@@ -247,6 +343,7 @@ describe("experimental remote canonical context storage", () => {
       );
       expect(repeated).toEqual(results[0]);
     } finally {
+      store.close();
       baseline.db.close();
     }
   });
@@ -298,6 +395,7 @@ describe("experimental remote canonical context storage", () => {
         store.assemble({ ...assembly, conversationId: 2 }),
       ).rejects.toThrow("authority");
     } finally {
+      store.close();
       baseline.db.close();
     }
   });
@@ -342,6 +440,7 @@ describe("experimental remote canonical context storage", () => {
         }),
       ).toEqual(result);
     } finally {
+      store.close();
       baseline.db.close();
     }
   });
@@ -375,6 +474,7 @@ describe("experimental remote canonical context storage", () => {
         snapshot.close();
       }
     } finally {
+      store.close();
       baseline.db.close();
     }
   });
@@ -402,6 +502,7 @@ describe("experimental remote canonical context storage", () => {
         await store.searchMessages({ mode: "full_text", query: "unreachable" }),
       ).toHaveLength(0);
     } finally {
+      store.close();
       baseline.db.close();
     }
   });
@@ -455,6 +556,7 @@ describe("experimental remote canonical context storage", () => {
         "agent authority",
       );
     } finally {
+      store.close();
       baseline.db.close();
     }
   });

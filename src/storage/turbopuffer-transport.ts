@@ -113,16 +113,17 @@ export class TurbopufferTransport implements DocumentTransport {
         commit: "string",
       },
     });
-    // Aggregate rows_affected includes losing immutable inserts. Only the
-    // separately reported root patch count establishes CAS success.
+    // Zero-valued counters can be omitted. Accept that only when the aggregate
+    // is fully accounted for; aggregate-only positive replies remain ambiguous.
+    const upserted = response.rows_upserted ?? 0;
+    const patched = response.rows_patched ?? 0;
     if (
-      (body.patch_rows && !Number.isSafeInteger(response.rows_patched)) ||
-      (body.upsert_rows && !Number.isSafeInteger(response.rows_upserted))
+      ![response.rows_affected, upserted, patched].every(
+        (count) => Number.isSafeInteger(count) && count >= 0,
+      ) ||
+      response.rows_affected !== upserted + patched
     )
       throw new Error("Turbopuffer write counts missing; reconcile outcome");
-    return {
-      upserted: response.rows_upserted ?? 0,
-      patched: response.rows_patched ?? 0,
-    };
+    return { upserted, patched };
   }
 }

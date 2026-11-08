@@ -118,7 +118,7 @@ const evidence = {
       "Actual remote Turbopuffer vs local Docker PG: not a same-region network comparison.",
     "All assembly samples include remote reads, projection construction/migrations/FTS rebuild, exact upstream assembler and projection disposal.",
     "Only deterministic fake inference at the actual upstream summary boundary. Compaction n=3, so p95=max.",
-    "Cold Turbopuffer assembly creates a fresh client per sample. Warm assembly/search/compaction prime verified immutable blocks outside measured samples, but every operation strongly reads the root and creates its own disposable projection. No cached head or shared writable SQLite session.",
+    "Cold Turbopuffer assembly creates a fresh client per sample. Warm read samples prime verified blocks and a query-only committed projection outside measured samples; every read still strongly checks the root. Mutations and public snapshots build independent writable projections. No cached head or shared writable SQLite session.",
     "Turbopuffer is canonical. Its SQLite :memory: projection is disposable; no persistent local database or PostgreSQL underneath it.",
   ],
 };
@@ -393,6 +393,7 @@ try {
     }
   }
   evidence.httpRequests = stores.flatMap((s) => s.transport.metrics);
+  for (const store of stores) store.close();
   for (const db of sqlites) db.close();
   await pool.end();
   await writeFile(

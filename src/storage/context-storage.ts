@@ -23,6 +23,12 @@ type Manifest = {
   parent: string;
 };
 type Head = { revision: number; commit: string; manifest: Manifest };
+type ReadProjection = {
+  local: Session;
+  commit: string;
+  users: number;
+  retired: boolean;
+};
 type Session = {
   db: DatabaseSync;
   conversations: ConversationStore;
@@ -175,6 +181,23 @@ export class TurbopufferContextStorage {
   // Per-instance, one bounded manifest of content-addressed blocks. Never cache
   // the mutable head or share a writable SQLite projection between operations.
   #blocks = new Map<string, Readonly<Document>>();
+  #projection?: ReadProjection;
+  #closed = false;
+  #assertOpen() {
+    if (this.#closed) throw new Error("Context storage is closed");
+  }
+  #retire(entry?: ReadProjection) {
+    if (!entry) return;
+    entry.retired = true;
+    if (entry.users === 0) entry.local.db.close();
+  }
+  /** Release disposable caches. Active read leases finish before their DB closes. */
+  close() {
+    this.#closed = true;
+    this.#retire(this.#projection);
+    this.#projection = undefined;
+    this.#blocks.clear();
+  }
   constructor(options: TurbopufferStorageOptions) {
     if (
       !options.organizationId ||
@@ -216,6 +239,7 @@ export class TurbopufferContextStorage {
       });
   }
   async initialize() {
+    this.#assertOpen();
     await this.transport.write({
       upsert_rows: [
         {
@@ -231,6 +255,7 @@ export class TurbopufferContextStorage {
     });
   }
   async head(): Promise<Head> {
+    this.#assertOpen();
     const [row] = await this.transport.read([this.#root]);
     if (
       !row ||
@@ -247,7 +272,9 @@ export class TurbopufferContextStorage {
     return { revision: row.version!, commit: row.commit!, manifest };
   }
   async snapshot(): Promise<ContextOperation> {
-    const head = await this.head();
+    return this.#snapshot(await this.head());
+  }
+  async #snapshot(head: Head): Promise<ContextOperation> {
     if (head.manifest.blocks.length > 512)
       throw new Error("Manifest block limit exceeded");
     const previous = this.#blocks;
@@ -293,6 +320,39 @@ export class TurbopufferContextStorage {
       blocks.map((row) => [row.id, Object.freeze({ ...row })]),
     );
     return new ContextOperation(local, head, this.conversationId);
+  }
+  async #read<T>(run: (local: Session) => Promise<T>): Promise<T> {
+    const head = await this.head(); // Always strong; never cache mutable authority.
+    this.#assertOpen();
+    let entry = this.#projection;
+    if (!entry || entry.commit !== head.commit) {
+      const operation = await this.#snapshot(head);
+      if (this.#closed) {
+        operation.close();
+        this.#assertOpen();
+      }
+      try {
+        operation.local.db.exec("PRAGMA query_only=ON");
+      } catch (error) {
+        operation.close();
+        throw error;
+      }
+      entry = {
+        local: operation.local,
+        commit: head.commit,
+        users: 0,
+        retired: false,
+      };
+      this.#retire(this.#projection);
+      this.#projection = entry;
+    }
+    entry.users++;
+    try {
+      return await run(entry.local);
+    } finally {
+      entry.users--;
+      if (entry.retired && entry.users === 0) entry.local.db.close();
+    }
   }
   async #publish<T>(
     operation: ContextOperation,
@@ -478,12 +538,15 @@ export class TurbopufferContextStorage {
     });
   }
   async assemble(input: Parameters<ContextAssembler["assemble"]>[0]) {
-    const operation = await this.snapshot();
-    try {
-      return await operation.assemble(input);
-    } finally {
-      operation.close();
-    }
+    if (input.conversationId !== this.conversationId)
+      throw new Error("Conversation outside authority");
+    return this.#read((local) =>
+      new ContextAssembler(
+        local.conversations,
+        local.summaries,
+        "UTC",
+      ).assemble(input),
+    );
   }
   async compactLeaf(
     token: string,
@@ -533,18 +596,18 @@ export class TurbopufferContextStorage {
   async searchMessages(
     input: Parameters<ConversationStore["searchMessages"]>[0],
   ) {
-    const operation = await this.snapshot();
-    try {
-      operation.check(input.conversationId ?? this.conversationId);
-      if (input.conversationIds?.some((id) => id !== this.conversationId))
-        throw new Error("Conversation outside authority");
-      return await operation.local.conversations.searchMessages({
+    if (
+      (input.conversationId != null &&
+        input.conversationId !== this.conversationId) ||
+      input.conversationIds?.some((id) => id !== this.conversationId)
+    )
+      throw new Error("Conversation outside authority");
+    return this.#read((local) =>
+      local.conversations.searchMessages({
         ...input,
         conversationId: this.conversationId,
-      });
-    } finally {
-      operation.close();
-    }
+      }),
+    );
   }
 }
 
