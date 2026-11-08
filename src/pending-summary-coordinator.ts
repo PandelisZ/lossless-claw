@@ -205,7 +205,7 @@ export class PendingCompactionCoordinator {
       store: this.pendingSummaryStore,
       leaseOwner: this.leaseOwner,
       leaseMs: normalizePositiveInteger(this.config.leaseMs, 60_000),
-      loadSourceText: (node) => this.loadSourceText(node),
+      loadSourceText: async (node) => this.loadSourceText(node),
       summarize: (sourceText, node) =>
         this.summarize(sourceText, false, {
           isCondensed: node.kind === "condensed",

@@ -56,7 +56,7 @@ function bootstrap(engine: LcmContextEngine) {
   return engine.bootstrap({ sessionId, sessionKey, sessionTarget });
 }
 
-function afterTurn(
+async function afterTurn(
   engine: LcmContextEngine,
   messages: AgentMessage[],
   extra: { isHeartbeat?: boolean; autoCompactionSummary?: string } = {},

@@ -160,10 +160,10 @@ function makeEngine(params: {
 }
 
 describe("createLcmExpandQueryTool", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     callGatewayMock.mockReset();
-    resetDelegatedExpansionGrantsForTests();
+    (await resetDelegatedExpansionGrantsForTests());
     resetExpansionDelegationGuardForTests();
   });
 
@@ -286,7 +286,7 @@ describe("createLcmExpandQueryTool", () => {
       originSessionKey: "agent:main:main",
       stampedBy: "lcm_expand_query",
     });
-    expect(resolveDelegatedExpansionGrantId(delegatedSessionKey)).toBeNull();
+    expect((await resolveDelegatedExpansionGrantId(delegatedSessionKey))).toBeNull();
     expect(getExpansionDelegationTelemetrySnapshotForTests()).toMatchObject({
       start: 1,
       block: 0,
@@ -1177,7 +1177,7 @@ describe("createLcmExpandQueryTool", () => {
     expect(methods).not.toContain("sessions.abort");
     expect(methods).toContain("sessions.delete");
     expect(delegatedSessionKey).not.toBe("");
-    expect(resolveDelegatedExpansionGrantId(delegatedSessionKey)).toBeNull();
+    expect((await resolveDelegatedExpansionGrantId(delegatedSessionKey))).toBeNull();
     expect(getExpansionDelegationTelemetrySnapshotForTests()).toMatchObject({
       start: 1,
       block: 0,
@@ -1482,7 +1482,7 @@ describe("createLcmExpandQueryTool", () => {
     );
     expect(methods).toContain("sessions.delete");
     expect(delegatedSessionKey).not.toBe("");
-    expect(resolveDelegatedExpansionGrantId(delegatedSessionKey)).toBeNull();
+    expect((await resolveDelegatedExpansionGrantId(delegatedSessionKey))).toBeNull();
   });
 
   it("classifies a missing delegated reply separately from a malformed reply", async () => {
@@ -2795,12 +2795,12 @@ describe("createLcmExpandQueryTool", () => {
   it("blocks delegated re-entry with deterministic recursion errors", async () => {
     const retrieval = makeRetrieval();
     const delegatedSessionKey = "agent:main:subagent:recursive";
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey,
       issuerSessionId: "agent:main:main",
       allowedConversationIds: [42],
       tokenCap: 120,
-    });
+    }));
     stampDelegatedExpansionContext({
       sessionKey: delegatedSessionKey,
       requestId: "req-recursive",

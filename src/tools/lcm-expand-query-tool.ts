@@ -676,10 +676,10 @@ export function createLcmExpandQueryTool(input: {
           : input.sessionId
         )?.trim() ?? "";
       const requestId = resolveExpansionRequestId(callerSessionKey);
-      const recursionCheck = evaluateExpansionRecursionGuard({
+      const recursionCheck = (await evaluateExpansionRecursionGuard({
         sessionKey: callerSessionKey,
         requestId,
-      });
+      }));
       recordExpansionDelegationTelemetry({
         deps: input.deps,
         component: "lcm_expand_query",
@@ -807,7 +807,7 @@ export function createLcmExpandQueryTool(input: {
         const requesterAgentId = input.deps.normalizeAgentId(
           input.deps.parseAgentSessionKey(callerSessionKey)?.agentId,
         );
-        const childExpansionDepth = resolveNextExpansionDepth(callerSessionKey);
+        const childExpansionDepth = (await resolveNextExpansionDepth(callerSessionKey));
 
         if (!conversationScope.allConversations) {
           const sourceConversationId = resolveSourceConversationId({

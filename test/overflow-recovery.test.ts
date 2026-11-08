@@ -300,7 +300,7 @@ describe("authoritative forced overflow recovery", () => {
     const raw = await Promise.all(
       context
         .filter((item) => item.messageId != null)
-        .map((item) =>
+        .map(async (item) =>
           engine.getConversationStore().getMessageById(item.messageId!)
         )
     );
@@ -738,7 +738,7 @@ it.each([1, 2])(
       const records = await Promise.all(
         ctx
           .filter((item) => item.summaryId)
-          .map((item) => summaries.getSummary(item.summaryId!))
+          .map(async (item) => summaries.getSummary(item.summaryId!))
       );
       expect(
         records.some(

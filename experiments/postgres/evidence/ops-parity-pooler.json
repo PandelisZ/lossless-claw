@@ -1,0 +1,31 @@
+{
+  "environment": "local PostgreSQL through PgBouncer transaction pooling",
+  "production": false,
+  "sourceFixtureSha256": "597e3a64ffcd3c1121c34323f49fe865b9a2a7708897b76027d1e122f0e35ac0",
+  "sliceHash": "e50b89d413a9f9ce863e229ee8915e55e7627addb4d7c648248c38638306e267",
+  "seed": 20261104,
+  "scope": {
+    "organizations": 1,
+    "agents": 1,
+    "conversations": 1,
+    "messages": 200,
+    "messageContentBytes": 80000,
+    "structuredParts": 2,
+    "contextItems": 95
+  },
+  "parityCases": [
+    "normal",
+    "token-budget",
+    "prompt-and-structured"
+  ],
+  "completeEngineParityCases": [
+    "normal",
+    "token-budget",
+    "prompt-and-structured"
+  ],
+  "expandedDagMessages": 200,
+  "expandedDagSummaries": 34,
+  "inferenceCalls": 0,
+  "note": "Complete ContextAssembler calls include snapshot loading and native focus lookup; postgres-engine-batched includes the complete native LcmContextEngine.assemble lifecycle and pressure checks. SQLite uses a warm local on-disk WAL file, not an in-memory database. Client I/O includes round trips and decoding, not isolated server CPU. 2ms/query rows are synthetic injected latency, not production measurements.",
+  "results": []
+}

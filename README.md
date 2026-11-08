@@ -659,8 +659,15 @@ help bringing agents into your own systems, we'd like to hear from you:
 Bug reports and feature requests belong in
 [GitHub Issues](https://github.com/Martian-Engineering/lossless-claw/issues).
 
+## Experimental PostgreSQL development
+
+The fork includes an explicit opt-in [native PostgreSQL engine](docs/postgres.md),
+with asynchronous core and auxiliary stores and gateway registration. SQLite
+remains the default. The [frozen standalone comparison](experiments/postgres/README.md)
+retains the original baseline and evidence; it is separate from native engine qualification.
+
 ### Experimental remote context storage
 
 This fork includes an explicitly selected Turbopuffer context-operation backend.
-SQLite remains the default; full gateway activation is not implemented. See the
+SQLite remains the default; full Turbopuffer gateway activation is not implemented. See the
 [implementation, supported scope and paired PostgreSQL benchmark](docs/experiments/turbopuffer/README.md).

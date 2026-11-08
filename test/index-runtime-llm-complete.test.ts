@@ -512,7 +512,7 @@ describe("createLcmDependencies.complete runtime.llm bridge", () => {
         });
       }
       vi.useFakeTimers({ toFake: ["Date"] });
-      const maintain = (complete: RuntimeLlmComplete) => engine.maintain({
+      const maintain = async (complete: RuntimeLlmComplete) => engine.maintain({
         sessionId, sessionFile,
         runtimeContext: { allowDeferredCompactionExecution: true, tokenBudget, llm: { complete } },
       });

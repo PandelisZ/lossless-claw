@@ -115,14 +115,14 @@ const MAIN_SESSION_RESTRICTION_ERROR =
   "lcm_expand is only available in sub-agent sessions. Use lcm_expand_query to ask a focused question against expanded summaries, or lcm_describe/lcm_grep for lighter lookups.";
 
 describe("createLcmExpandTool expansion limits", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     callGatewayMock.mockReset();
-    resetDelegatedExpansionGrantsForTests();
+    (await resetDelegatedExpansionGrantsForTests());
   });
 
-  afterEach(() => {
-    resetDelegatedExpansionGrantsForTests();
+  afterEach(async () => {
+    (await resetDelegatedExpansionGrantsForTests());
   });
 
   it("rejects lcm_expand from main sessions", async () => {
@@ -151,12 +151,12 @@ describe("createLcmExpandTool expansion limits", () => {
       truncated: false,
     });
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:unbounded",
       issuerSessionId: "main",
       allowedConversationIds: [7],
       tokenCap: 120,
-    });
+    }));
 
     const tool = createLcmExpandTool({
       deps: makeDeps(),
@@ -187,12 +187,12 @@ describe("createLcmExpandTool expansion limits", () => {
       truncated: false,
     });
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:query",
       issuerSessionId: "main",
       allowedConversationIds: [7],
       tokenCap: 120,
-    });
+    }));
 
     const tool = createLcmExpandTool({
       deps: makeDeps(),
@@ -243,12 +243,12 @@ describe("createLcmExpandTool expansion limits", () => {
       truncated: false,
     });
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:granted",
       issuerSessionId: "main",
       allowedConversationIds: [42],
       tokenCap: 120,
-    });
+    }));
 
     const tool = createLcmExpandTool({
       deps: makeDeps(),
@@ -275,12 +275,12 @@ describe("createLcmExpandTool expansion limits", () => {
       summary: { conversationId: 42 },
     });
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:expired",
       issuerSessionId: "main",
       allowedConversationIds: [42],
       ttlMs: 0,
-    });
+    }));
 
     const tool = createLcmExpandTool({
       deps: makeDeps(),
@@ -305,12 +305,12 @@ describe("createLcmExpandTool expansion limits", () => {
       summary: { conversationId: 42 },
     });
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:revoked",
       issuerSessionId: "main",
       allowedConversationIds: [42],
-    });
-    revokeDelegatedExpansionGrantForSession("agent:main:subagent:revoked");
+    }));
+    (await revokeDelegatedExpansionGrantForSession("agent:main:subagent:revoked"));
 
     const tool = createLcmExpandTool({
       deps: makeDeps(),
@@ -331,12 +331,12 @@ describe("createLcmExpandTool expansion limits", () => {
   it("rejects delegated expansion outside conversation scope", async () => {
     const mockRetrieval = makeMockRetrieval();
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:conversation-scope",
       issuerSessionId: "main",
       allowedConversationIds: [7],
       tokenCap: 120,
-    });
+    }));
 
     const tool = createLcmExpandTool({
       deps: makeDeps(),
@@ -357,12 +357,12 @@ describe("createLcmExpandTool expansion limits", () => {
   it("fails closed for delegated explicit expansion with multiple allowed conversations", async () => {
     const mockRetrieval = makeMockRetrieval();
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:multi-conversation",
       issuerSessionId: "main",
       allowedConversationIds: [7, 11],
       tokenCap: 120,
-    });
+    }));
 
     const tool = createLcmExpandTool({
       deps: makeDeps(),
@@ -383,12 +383,12 @@ describe("createLcmExpandTool expansion limits", () => {
   it("fails closed for delegated query expansion with multiple allowed conversations", async () => {
     const mockRetrieval = makeMockRetrieval();
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:multi-query",
       issuerSessionId: "main",
       allowedConversationIds: [7, 11],
       tokenCap: 120,
-    });
+    }));
 
     const tool = createLcmExpandTool({
       deps: makeDeps(),
@@ -416,12 +416,12 @@ describe("createLcmExpandTool expansion limits", () => {
       truncated: false,
     });
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:token-cap",
       issuerSessionId: "main",
       allowedConversationIds: [7],
       tokenCap: 50,
-    });
+    }));
 
     const tool = createLcmExpandTool({
       deps: makeDeps(),
@@ -455,12 +455,12 @@ describe("createLcmExpandTool expansion limits", () => {
       totalMatches: 0,
     });
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:route-only",
       issuerSessionId: "main",
       allowedConversationIds: [7],
       tokenCap: 120,
-    });
+    }));
 
     const tool = createLcmExpandTool({
       deps: makeDeps(),
@@ -505,13 +505,13 @@ describe("createLcmExpandTool expansion limits", () => {
       truncated: false,
     });
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:direct-only",
       issuerSessionId: "main",
       allowedConversationIds: [7],
       tokenCap: 120,
       maxDepth: 10,
-    });
+    }));
 
     const tool = createLcmExpandTool({
       deps: makeDeps(),

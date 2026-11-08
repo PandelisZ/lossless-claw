@@ -1,4 +1,6 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { DatabaseSync } from "node:sqlite";
+import { isPostgresDatabase, type StorageDatabase } from "./db/storage.js";
 import type { ExpansionOrchestrator, ExpansionRequest, ExpansionResult } from "./expansion.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -123,15 +125,15 @@ function toGrant(row: GrantRow): ExpansionGrant {
  * never share grants across plugin generations.
  */
 export class ExpansionAuthManager {
-  private readonly db: DatabaseSync;
+  private readonly db: StorageDatabase;
 
-  constructor(db: DatabaseSync = new DatabaseSync(":memory:")) {
+  constructor(db: StorageDatabase = new DatabaseSync(":memory:")) {
     this.db = db;
-    ensureExpansionGrantTables(db);
+    if (!isPostgresDatabase(db)) ensureExpansionGrantTables(db);
   }
 
   /** True when this manager stores grants in the given database. */
-  usesDatabase(db: DatabaseSync): boolean {
+  usesDatabase(db: StorageDatabase): boolean {
     return this.db === db;
   }
 
@@ -139,7 +141,7 @@ export class ExpansionAuthManager {
    * Create a new expansion grant with the given parameters.
    * Generates a unique grant ID and applies defaults for optional fields.
    */
-  createGrant(input: CreateGrantInput): ExpansionGrant {
+  async createGrant(input: CreateGrantInput): Promise<ExpansionGrant> {
     const grantId = "grant_" + crypto.randomUUID().slice(0, 12);
     const now = new Date();
     const ttlMs = input.ttlMs ?? DEFAULT_TTL_MS;
@@ -156,8 +158,8 @@ export class ExpansionAuthManager {
       createdAt: now,
     };
 
-    this.pruneLongExpired(now.getTime());
-    this.db
+    (await this.pruneLongExpired(now.getTime()));
+    (await this.db
       .prepare(
         `INSERT INTO lcm_expansion_grants (
            grant_id, issuer_session_id, allowed_conversation_ids, allowed_summary_ids,
@@ -173,37 +175,37 @@ export class ExpansionAuthManager {
         grant.tokenCap,
         grant.expiresAt.getTime(),
         grant.createdAt.getTime(),
-      );
+      ));
     return grant;
   }
 
   // Read one stored grant regardless of revocation or expiry.
-  private readGrant(grantId: string): ExpansionGrant | null {
-    const row = this.db
+  private async readGrant(grantId: string): Promise<ExpansionGrant | null> {
+    const row = (await this.db
       .prepare(`SELECT * FROM lcm_expansion_grants WHERE grant_id = ?`)
-      .get(grantId) as GrantRow | undefined;
+      .get(grantId)) as GrantRow | undefined;
     return row ? toGrant(row) : null;
   }
 
   // Drop grants (and their bindings) that expired well before now. These are
   // short-lived authorization tokens, not conversation data.
-  private pruneLongExpired(nowMs: number): void {
+  private async pruneLongExpired(nowMs: number): Promise<void> {
     const cutoff = nowMs - EXPIRED_GRANT_RETENTION_MS;
-    this.db.prepare(`DELETE FROM lcm_expansion_grants WHERE expires_at_ms <= ?`).run(cutoff);
-    this.db
+    (await this.db.prepare(`DELETE FROM lcm_expansion_grants WHERE expires_at_ms <= ?`).run(cutoff));
+    (await this.db
       .prepare(
         `DELETE FROM lcm_expansion_grant_bindings
          WHERE grant_id NOT IN (SELECT grant_id FROM lcm_expansion_grants)`,
       )
-      .run();
+      .run());
   }
 
   /**
    * Retrieve a grant by ID. Returns null if the grant does not exist,
    * has been revoked, or has expired.
    */
-  getGrant(grantId: string): ExpansionGrant | null {
-    const grant = this.readGrant(grantId);
+  async getGrant(grantId: string): Promise<ExpansionGrant | null> {
+    const grant = (await this.readGrant(grantId));
     if (!grant) {
       return null;
     }
@@ -220,24 +222,24 @@ export class ExpansionAuthManager {
    * Revoke a grant, preventing any further use.
    * Returns true if the grant was found and revoked, false if not found.
    */
-  revokeGrant(grantId: string): boolean {
-    const result = this.db
+  async revokeGrant(grantId: string): Promise<boolean> {
+    const result = (await this.db
       .prepare(`UPDATE lcm_expansion_grants SET revoked = 1 WHERE grant_id = ?`)
-      .run(grantId);
+      .run(grantId));
     return Number(result.changes) > 0;
   }
 
   /**
    * Resolve remaining token budget for an active grant.
    */
-  getRemainingTokenBudget(grantId: string): number | null {
-    const grant = this.getGrant(grantId);
+  async getRemainingTokenBudget(grantId: string): Promise<number | null> {
+    const grant = (await this.getGrant(grantId));
     if (!grant) {
       return null;
     }
-    const row = this.db
+    const row = (await this.db
       .prepare(`SELECT consumed_tokens FROM lcm_expansion_grants WHERE grant_id = ?`)
-      .get(grantId) as { consumed_tokens: number } | undefined;
+      .get(grantId)) as { consumed_tokens: number } | undefined;
     const consumed = Math.max(0, row?.consumed_tokens ?? 0);
     return Math.max(0, Math.floor(grant.tokenCap) - consumed);
   }
@@ -245,8 +247,8 @@ export class ExpansionAuthManager {
   /**
    * Consume token budget for a grant, clamped to the grant token cap.
    */
-  consumeTokenBudget(grantId: string, consumedTokens: number): number | null {
-    const grant = this.getGrant(grantId);
+  async consumeTokenBudget(grantId: string, consumedTokens: number): Promise<number | null> {
+    const grant = (await this.getGrant(grantId));
     if (!grant) {
       return null;
     }
@@ -255,21 +257,21 @@ export class ExpansionAuthManager {
         ? Math.max(0, Math.floor(consumedTokens))
         : 0;
     // One statement keeps the read-add-clamp atomic for concurrent consumers.
-    this.db
+    (await this.db
       .prepare(
         `UPDATE lcm_expansion_grants
          SET consumed_tokens = MIN(?, MAX(0, consumed_tokens) + ?)
          WHERE grant_id = ?`,
       )
-      .run(Math.max(1, Math.floor(grant.tokenCap)), safeConsumed, grantId);
-    return this.getRemainingTokenBudget(grantId);
+      .run(Math.max(1, Math.floor(grant.tokenCap)), safeConsumed, grantId));
+    return (await this.getRemainingTokenBudget(grantId));
   }
 
   /**
    * Validate an expansion request against a grant.
    * Checks existence, expiry, revocation, conversation scope, and summary scope.
    */
-  validateExpansion(
+  async validateExpansion(
     grantId: string,
     request: {
       conversationId: number;
@@ -277,8 +279,8 @@ export class ExpansionAuthManager {
       depth: number;
       tokenCap: number;
     },
-  ): ValidationResult {
-    const grant = this.readGrant(grantId);
+  ): Promise<ValidationResult> {
+    const grant = (await this.readGrant(grantId));
 
     // 1. Grant must exist
     if (!grant) {
@@ -326,52 +328,56 @@ export class ExpansionAuthManager {
    * Remove all expired and revoked grants from the store.
    * Returns the number of grants removed.
    */
-  cleanup(): number {
-    const result = this.db
+  async cleanup(): Promise<number> {
+    const result = (await this.db
       .prepare(`DELETE FROM lcm_expansion_grants WHERE revoked = 1 OR expires_at_ms <= ?`)
-      .run(Date.now());
+      .run(Date.now()));
     return Number(result.changes);
   }
 
   /** Bind a delegated child session key to its grant, replacing any earlier binding. */
-  bindSession(sessionKey: string, grantId: string): void {
-    this.db
+  async bindSession(sessionKey: string, grantId: string): Promise<void> {
+    (await this.db
       .prepare(
         `INSERT INTO lcm_expansion_grant_bindings (session_key, grant_id) VALUES (?, ?)
          ON CONFLICT(session_key) DO UPDATE SET grant_id = excluded.grant_id`,
       )
-      .run(sessionKey, grantId);
+      .run(sessionKey, grantId));
   }
 
   /** Resolve the grant id bound to a delegated child session key. */
-  resolveSessionGrantId(sessionKey: string): string | null {
-    const row = this.db
+  async resolveSessionGrantId(sessionKey: string): Promise<string | null> {
+    const row = (await this.db
       .prepare(`SELECT grant_id FROM lcm_expansion_grant_bindings WHERE session_key = ?`)
-      .get(sessionKey) as { grant_id: string } | undefined;
+      .get(sessionKey)) as { grant_id: string } | undefined;
     return row?.grant_id ?? null;
   }
 
   /** Remove a session binding. Returns true when one existed. */
-  removeSessionBinding(sessionKey: string): boolean {
-    const result = this.db
+  async removeSessionBinding(sessionKey: string): Promise<boolean> {
+    const result = (await this.db
       .prepare(`DELETE FROM lcm_expansion_grant_bindings WHERE session_key = ?`)
-      .run(sessionKey);
+      .run(sessionKey));
     return Number(result.changes) > 0;
   }
 
   /** Remove every session binding. */
-  clearSessionBindings(): void {
-    this.db.exec(`DELETE FROM lcm_expansion_grant_bindings`);
+  async clearSessionBindings(): Promise<void> {
+    (await this.db.exec(`DELETE FROM lcm_expansion_grant_bindings`));
   }
 }
 
+const expansionAuthContext = new AsyncLocalStorage<ExpansionAuthManager>();
+export function withExpansionAuthManager<T>(manager: ExpansionAuthManager, operation: () => T): T {
+  return expansionAuthContext.run(manager, operation);
+}
 let runtimeExpansionAuthManager = new ExpansionAuthManager();
 
 /**
  * Return the singleton auth manager used by runtime delegated expansion flows.
  */
 export function getRuntimeExpansionAuthManager(): ExpansionAuthManager {
-  return runtimeExpansionAuthManager;
+  return expansionAuthContext.getStore() ?? runtimeExpansionAuthManager;
 }
 
 /**
@@ -380,7 +386,7 @@ export function getRuntimeExpansionAuthManager(): ExpansionAuthManager {
  * Returns an unbind function. Unbinding restores a private in-memory store,
  * but only while this database is still the bound one.
  */
-export function bindRuntimeExpansionGrantDatabase(db: DatabaseSync): () => void {
+export function bindRuntimeExpansionGrantDatabase(db: StorageDatabase): () => void {
   runtimeExpansionAuthManager = new ExpansionAuthManager(db);
   return () => {
     if (runtimeExpansionAuthManager.usesDatabase(db)) {
@@ -392,56 +398,56 @@ export function bindRuntimeExpansionGrantDatabase(db: DatabaseSync): () => void 
 /**
  * Create a delegated expansion grant and bind it to the child session key.
  */
-export function createDelegatedExpansionGrant(
+export async function createDelegatedExpansionGrant(
   input: CreateDelegatedExpansionGrantInput,
-): ExpansionGrant {
+): Promise<ExpansionGrant> {
   const delegatedSessionKey = input.delegatedSessionKey.trim();
   if (!delegatedSessionKey) {
     throw new Error("delegatedSessionKey is required for delegated expansion grants");
   }
 
-  const grant = runtimeExpansionAuthManager.createGrant({
+  const grant = (await getRuntimeExpansionAuthManager().createGrant({
     issuerSessionId: input.issuerSessionId,
     allowedConversationIds: input.allowedConversationIds,
     allowedSummaryIds: input.allowedSummaryIds,
     maxDepth: input.maxDepth,
     tokenCap: input.tokenCap,
     ttlMs: input.ttlMs,
-  });
-  runtimeExpansionAuthManager.bindSession(delegatedSessionKey, grant.grantId);
+  }));
+  (await getRuntimeExpansionAuthManager().bindSession(delegatedSessionKey, grant.grantId));
   return grant;
 }
 
 /**
  * Resolve the delegated expansion grant id bound to a session key.
  */
-export function resolveDelegatedExpansionGrantId(sessionKey: string): string | null {
+export async function resolveDelegatedExpansionGrantId(sessionKey: string): Promise<string | null> {
   const key = sessionKey.trim();
   if (!key) {
     return null;
   }
-  return runtimeExpansionAuthManager.resolveSessionGrantId(key);
+  return (await getRuntimeExpansionAuthManager().resolveSessionGrantId(key));
 }
 
 /**
  * Revoke the delegated grant bound to a session key.
  * Optionally remove the binding after revocation.
  */
-export function revokeDelegatedExpansionGrantForSession(
+export async function revokeDelegatedExpansionGrantForSession(
   sessionKey: string,
   opts?: { removeBinding?: boolean },
-): boolean {
+): Promise<boolean> {
   const key = sessionKey.trim();
   if (!key) {
     return false;
   }
-  const grantId = runtimeExpansionAuthManager.resolveSessionGrantId(key);
+  const grantId = (await getRuntimeExpansionAuthManager().resolveSessionGrantId(key));
   if (!grantId) {
     return false;
   }
-  const didRevoke = runtimeExpansionAuthManager.revokeGrant(grantId);
+  const didRevoke = (await getRuntimeExpansionAuthManager().revokeGrant(grantId));
   if (opts?.removeBinding) {
-    runtimeExpansionAuthManager.removeSessionBinding(key);
+    (await getRuntimeExpansionAuthManager().removeSessionBinding(key));
   }
   return didRevoke;
 }
@@ -449,19 +455,19 @@ export function revokeDelegatedExpansionGrantForSession(
 /**
  * Remove delegated grant binding for a session key without revoking.
  */
-export function removeDelegatedExpansionGrantForSession(sessionKey: string): boolean {
+export async function removeDelegatedExpansionGrantForSession(sessionKey: string): Promise<boolean> {
   const key = sessionKey.trim();
   if (!key) {
     return false;
   }
-  return runtimeExpansionAuthManager.removeSessionBinding(key);
+  return (await getRuntimeExpansionAuthManager().removeSessionBinding(key));
 }
 
 /**
  * Test-only reset helper for delegated runtime grants.
  */
-export function resetDelegatedExpansionGrantsForTests(): void {
-  runtimeExpansionAuthManager.clearSessionBindings();
+export async function resetDelegatedExpansionGrantsForTests(): Promise<void> {
+  (await getRuntimeExpansionAuthManager().clearSessionBindings());
 }
 
 // ── Authorized wrapper ───────────────────────────────────────────────────────
@@ -477,18 +483,18 @@ export function wrapWithAuth(
 ): AuthorizedExpansionOrchestrator {
   return {
     async expand(grantId: string, request: ExpansionRequest): Promise<ExpansionResult> {
-      const validation = authManager.validateExpansion(grantId, {
+      const validation = (await authManager.validateExpansion(grantId, {
         conversationId: request.conversationId,
         summaryIds: request.summaryIds,
         depth: request.maxDepth ?? DEFAULT_MAX_DEPTH,
         tokenCap: request.tokenCap ?? DEFAULT_TOKEN_CAP,
-      });
+      }));
 
       if (!validation.valid) {
         throw new Error(`Expansion authorization failed: ${validation.reason}`);
       }
 
-      const remainingBudget = authManager.getRemainingTokenBudget(grantId);
+      const remainingBudget = (await authManager.getRemainingTokenBudget(grantId));
       if (remainingBudget == null) {
         throw new Error("Expansion authorization failed: Grant not found");
       }
@@ -497,7 +503,7 @@ export function wrapWithAuth(
       }
 
       // Clamp depth to grant maxDepth
-      const grant = authManager.getGrant(grantId);
+      const grant = (await authManager.getGrant(grantId));
       const grantMaxDepth = grant?.maxDepth ?? DEFAULT_MAX_DEPTH;
       const requestedDepth =
         typeof request.maxDepth === "number" && Number.isFinite(request.maxDepth)
@@ -515,7 +521,7 @@ export function wrapWithAuth(
         maxDepth: effectiveDepth,
         tokenCap: effectiveTokenCap,
       });
-      authManager.consumeTokenBudget(grantId, result.totalTokens);
+      (await authManager.consumeTokenBudget(grantId, result.totalTokens));
       return result;
     },
   };

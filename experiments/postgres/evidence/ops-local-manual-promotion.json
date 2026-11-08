@@ -1,0 +1,20 @@
+{
+  "production": false,
+  "environment": "local disposable PostgreSQL18 streaming standby, explicit replay barrier before primary SIGKILL, manual promotion, explicit new endpoint; not automatic/provider HA",
+  "replicaRejected": true,
+  "inFlightWriteRejected": true,
+  "committedStateHash": "740e12aeb1fa82424827ce7561142ab36d8fc8d0b9f35918826ba458ea91ba2c",
+  "allocatorMonotonic": true,
+  "allocatorBefore": {
+    "conversations": 1,
+    "messages": 1
+  },
+  "allocatorAfter": {
+    "conversations": 1,
+    "messages": 1
+  },
+  "committedMessages": 1,
+  "receiptPreserved": true,
+  "newPrimaryWritable": true,
+  "sourceSha256": "d756b66d6aba2d1ee2e7bd16270abdbafe1c683f2026ec4cd30aec4366e23e2f"
+}

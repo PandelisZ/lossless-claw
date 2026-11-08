@@ -1,3 +1,5 @@
+import type { loadContextSnapshot } from "./db/postgres/context-snapshot.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import { resolveRecoveryTailMaxTokens, selectOverflowToolGroup } from "./overflow-tool-groups.js";
 import { contentFromParts } from "./assembler.js";
@@ -722,18 +724,8 @@ export async function resolveLeafSummaryMessageContent(
 // ── CompactionEngine ─────────────────────────────────────────────────────────
 
 export class CompactionEngine {
-  /**
-   * Per-conversation context items cache, active only during compaction
-   * entry points. null when inactive — external callers (e.g., engine.ts
-   * evaluateLeafTrigger) get uncached reads.
-   *
-   * Uses a reference count so concurrent compactions on different
-   * conversations don't interfere: each withContextCache increments
-   * on entry and decrements on exit; the cache is only destroyed
-   * when all users have exited.
-   */
-  private _contextItemsCache: Map<number, ContextItemRecord[]> | null = null;
-  private _contextItemsCacheRefCount = 0;
+  /** Context reads are cached only within one asynchronous compaction operation. */
+  private readonly contextCache = new AsyncLocalStorage<{items:Map<number, ContextItemRecord[]>;snapshots:Map<number,Awaited<ReturnType<typeof loadContextSnapshot>>>;loads:Map<number,Promise<Awaited<ReturnType<typeof loadContextSnapshot>>|undefined>>;active:boolean}>();
 
   constructor(
     private conversationStore: ConversationStore,
@@ -742,37 +734,28 @@ export class CompactionEngine {
     private log: LcmLogger = NOOP_LCM_LOGGER,
   ) {}
 
-  /** Read context items, using per-phase cache when active. */
+  /** Read context items, using this operation's cache when active. */
   private async getContextItemsCached(conversationId: number): Promise<ContextItemRecord[]> {
-    if (this._contextItemsCache) {
-      if (this._contextItemsCache.has(conversationId)) {
-        return this._contextItemsCache.get(conversationId)!;
-      }
-      const items = await this.summaryStore.getContextItems(conversationId);
-      this._contextItemsCache.set(conversationId, items);
-      return items;
-    }
-    return this.summaryStore.getContextItems(conversationId);
+    const owner = this.contextCache.getStore();
+    const cache = owner?.active ? owner.items : undefined;
+    if(cache?.has(conversationId)) return cache.get(conversationId)!;
+    const snapshot=owner?.active ? await this.getOperationSnapshot(conversationId) : undefined;
+    const items = await (snapshot?.summaryStore ?? this.summaryStore).getContextItems(conversationId);
+    cache?.set(conversationId,items);
+    return items;
   }
 
-  /** Invalidate cache for a conversation after context mutation. */
   private invalidateContextCache(conversationId: number): void {
-    this._contextItemsCache?.delete(conversationId);
+    const owner=this.contextCache.getStore();
+    owner?.snapshots.get(conversationId)?.close();owner?.snapshots.delete(conversationId);owner?.loads.delete(conversationId);
+    owner?.items.delete(conversationId);
   }
 
-  /** Execute with context cache active. Reference-counted for concurrent use. */
   private async withContextCache<T>(fn: () => Promise<T>): Promise<T> {
-    if (!this._contextItemsCache) this._contextItemsCache = new Map();
-    this._contextItemsCacheRefCount++;
-    try {
-      return await fn();
-    } finally {
-      this._contextItemsCacheRefCount--;
-      if (this._contextItemsCacheRefCount <= 0) {
-        this._contextItemsCache = null;
-        this._contextItemsCacheRefCount = 0;
-      }
-    }
+    if(this.contextCache.getStore()?.active) return fn();
+    const owner={items:new Map<number,ContextItemRecord[]>(),snapshots:new Map<number,Awaited<ReturnType<typeof loadContextSnapshot>>>(),loads:new Map<number,Promise<Awaited<ReturnType<typeof loadContextSnapshot>>|undefined>>(),active:true};
+    try {return await this.contextCache.run(owner,fn);}
+    finally {owner.active=false;for(const snapshot of owner.snapshots.values())snapshot.close();owner.snapshots.clear();owner.loads.clear();owner.items.clear();}
   }
 
   // ── evaluate ─────────────────────────────────────────────────────────────
@@ -872,7 +855,7 @@ export class CompactionEngine {
     /** Report each committed pass even if a later pass throws. */
     onPassCommitted?: (tokensAfter: number) => void;
   }): Promise<CompactionResult> {
-    return this.withContextCache(() => this.compactFullSweep(input));
+    return this.withContextCache(async () => this.compactFullSweep(input));
   }
 
   /**
@@ -891,7 +874,7 @@ export class CompactionEngine {
     summaryModel?: string;
     allowCondensedPasses?: boolean;
   }): Promise<CompactionResult> {
-    return this.withContextCache(() => this._compactLeafImpl(input));
+    return this.withContextCache(async () => this._compactLeafImpl(input));
   }
 
   private async _compactLeafImpl(input: {
@@ -1418,7 +1401,7 @@ export class CompactionEngine {
     /** Report each committed pass, e.g. to refresh a host idle timeout. */
     onPassCommitted?: (tokensAfter: number) => void;
   }): Promise<CompactUntilUnderResult> {
-    return this.withContextCache(() => this._compactUntilUnderImpl(input));
+    return this.withContextCache(async () => this._compactUntilUnderImpl(input));
   }
 
   private async _compactUntilUnderImpl(input: {
@@ -2337,6 +2320,35 @@ export class CompactionEngine {
 
   // ── Private: Leaf Pass ───────────────────────────────────────────────────
 
+  private async getOperationSnapshot(conversationId:number) {
+    const owner=this.contextCache.getStore();
+    if(!owner?.active)return undefined;
+    let pending=owner.loads.get(conversationId);
+    if(!pending){pending=this.summaryStore.openCompactionSnapshot?.(conversationId) ?? Promise.resolve(undefined);owner.loads.set(conversationId,pending);}
+    const snapshot=await pending;
+    if(!owner.active || owner.loads.get(conversationId)!==pending){snapshot?.close();throw new Error("LCM compaction snapshot operation has closed");}
+    if(snapshot)owner.snapshots.set(conversationId,snapshot);
+    return snapshot;
+  }
+
+  private async openSourceSnapshot(conversationId:number,items:ContextItemRecord[]) {
+    const owner=this.contextCache.getStore();
+    const cached=owner?.active ? await this.getOperationSnapshot(conversationId) : undefined;
+    const snapshot=cached ?? await this.summaryStore.openCompactionSnapshot?.(conversationId);
+    if(!snapshot)return undefined;
+    try {
+      const context=await snapshot.summaryStore.getContextItems(conversationId);
+      const selected=context.filter(i=>i.ordinal>=(items[0]?.ordinal??0)&&i.ordinal<=(items.at(-1)?.ordinal??-1));
+      if(selected.length!==items.length || selected.some((row,index)=>row.ordinal!==items[index].ordinal||row.messageId!==items[index].messageId||row.summaryId!==items[index].summaryId))throw new Error("LCM context changed before inference; retry operation");
+      return cached ? {...snapshot,close(){/* The operation closes or refreshes this snapshot. */}} : snapshot;
+    }catch(error){if(!cached)snapshot.close();throw error;}
+  }
+
+  /** Optional revision capability keeps the existing SQLite store contract usable. */
+  private withSourceRevisionTransaction<T>(conversationId:number,revision:number|null,operation:()=>Promise<T>,sources?:readonly {conversationId:number;revision:number}[]):Promise<T> {
+    return this.summaryStore.withTransactionAtRevision?.(conversationId,revision,operation,sources) ?? this.summaryStore.withTransaction(operation);
+  }
+
   /**
    * Summarize a chunk of messages into one leaf summary.
    */
@@ -2347,6 +2359,9 @@ export class CompactionEngine {
     previousSummaryContent?: string,
     summaryModel?: string,
   ): Promise<LeafPassResult | null> {
+    const snapshot=await this.openSourceSnapshot(conversationId,messageItems);
+    try {
+    const sourceRevision = snapshot?.revision ?? await this.summaryStore.captureContextRevision?.(conversationId, messageItems) ?? null;
     // Fetch full message content for each context item
     const messageContents: {
       messageId: number;
@@ -2360,12 +2375,12 @@ export class CompactionEngine {
       if (item.messageId == null) {
         continue;
       }
-      const msg = await this.conversationStore.getMessageById(item.messageId);
+      const msg = await (snapshot?.conversationStore ?? this.conversationStore).getMessageById(item.messageId);
       if (msg) {
         messageContents.push({
           messageId: msg.messageId,
           role: msg.role,
-          content: await resolveLeafSummaryMessageContent(this.conversationStore, msg),
+          content: await resolveLeafSummaryMessageContent(snapshot?.conversationStore ?? this.conversationStore, msg),
           createdAt: msg.createdAt,
           tokenCount: this.resolveMessageTokenCount(msg),
           openClawSenderMetadata: msg.openClawSenderMetadata,
@@ -2437,7 +2452,7 @@ export class CompactionEngine {
       0,
     );
 
-    await this.summaryStore.withTransaction(async () => {
+    await this.withSourceRevisionTransaction(conversationId, sourceRevision, async () => {
       await this.summaryStore.insertSummary({
         summaryId,
         conversationId,
@@ -2475,10 +2490,11 @@ export class CompactionEngine {
         endOrdinal,
         summaryId,
       });
-    });
+    }, snapshot?.revisions);
     this.invalidateContextCache(conversationId);
 
     return { summaryId, level: summary.level, content: summary.content, removedTokens, addedTokens: tokenCount };
+    }finally{snapshot?.close();}
   }
 
   // ── Private: Condensed Pass ──────────────────────────────────────────────
@@ -2493,13 +2509,16 @@ export class CompactionEngine {
     summarize: CompactionSummarizeFn,
     summaryModel?: string,
   ): Promise<CondensedPassResult | null> {
+    const snapshot=await this.openSourceSnapshot(conversationId,summaryItems);
+    try {
+    const sourceRevision = snapshot?.revision ?? await this.summaryStore.captureContextRevision?.(conversationId, summaryItems) ?? null;
     // Fetch full summary records
     const summaryRecords: SummaryRecord[] = [];
     for (const item of summaryItems) {
       if (item.summaryId == null) {
         continue;
       }
-      const rec = await this.summaryStore.getSummary(item.summaryId);
+      const rec = await (snapshot?.summaryStore ?? this.summaryStore).getSummary(item.summaryId);
       if (rec) {
         summaryRecords.push(rec);
       }
@@ -2563,7 +2582,7 @@ export class CompactionEngine {
     const summaryId = generateSummaryId(condensed.content);
     const tokenCount = estimateTokens(condensed.content);
 
-    await this.summaryStore.withTransaction(async () => {
+    await this.withSourceRevisionTransaction(conversationId, sourceRevision, async () => {
       await this.summaryStore.insertSummary({
         summaryId,
         conversationId,
@@ -2633,7 +2652,7 @@ export class CompactionEngine {
         endOrdinal,
         summaryId,
       });
-    });
+    }, snapshot?.revisions);
     this.invalidateContextCache(conversationId);
 
     const removedTokens = summaryRecords.reduce(
@@ -2641,6 +2660,7 @@ export class CompactionEngine {
       0,
     );
     return { summaryId, level: condensed.level, removedTokens, addedTokens: tokenCount };
+    }finally{snapshot?.close();}
   }
 
   /** Emit compaction telemetry without mutating canonical conversation history. */

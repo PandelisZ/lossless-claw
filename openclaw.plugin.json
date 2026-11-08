@@ -2,7 +2,9 @@
   "id": "lossless-claw",
   "controlUi": {
     "entry": "dist/control-ui/index.js",
-    "styles": ["dist/control-ui/index.css"]
+    "styles": [
+      "dist/control-ui/index.css"
+    ]
   },
   "name": "Lossless Context Management",
   "kind": "context-engine",
@@ -32,19 +34,35 @@
   },
   "toolMetadata": {
     "lcm_grep": {
-      "profiles": ["coding", "messaging", "full"],
+      "profiles": [
+        "coding",
+        "messaging",
+        "full"
+      ],
       "replaySafe": true
     },
     "lcm_describe": {
-      "profiles": ["coding", "messaging", "full"],
+      "profiles": [
+        "coding",
+        "messaging",
+        "full"
+      ],
       "replaySafe": true
     },
     "lcm_expand": {
-      "profiles": ["coding", "messaging", "full"],
+      "profiles": [
+        "coding",
+        "messaging",
+        "full"
+      ],
       "replaySafe": true
     },
     "lcm_expand_query": {
-      "profiles": ["coding", "messaging", "full"],
+      "profiles": [
+        "coding",
+        "messaging",
+        "full"
+      ],
       "replaySafe": true
     }
   },
@@ -156,6 +174,11 @@
       "title": "Storage and logging",
       "order": 80,
       "properties": [
+        "storageBackend",
+        "postgresSchemas",
+        "postgresSchema",
+        "postgresOrganizationId",
+        "postgresAgentId",
         "databasePath",
         "independentLogFile"
       ]
@@ -186,7 +209,7 @@
     },
     "contextThreshold": {
       "label": "Context Threshold",
-      "help": "Fraction of context window that triggers compaction (0.0–1.0)"
+      "help": "Fraction of context window that triggers compaction (0.0\u20131.0)"
     },
     "contextThresholdOverrides": {
       "label": "Context Threshold Overrides",
@@ -214,7 +237,7 @@
     },
     "stubLargeToolPayloads": {
       "label": "Stub Large Tool Payloads",
-      "help": "When enabled, evictable tool-result rows whose payload was externalized via lcm-blob-migrate are replaced with a [LCM Tool Output: file_xxx | …] reference at assemble time. Fresh tail is never stubbed. The agent recovers the original output via lcm_describe(id=file_xxx, expandFile=true). Default off; requires running scripts/lcm-blob-migrate.mjs first to populate messages.large_content."
+      "help": "When enabled, evictable tool-result rows whose payload was externalized via lcm-blob-migrate are replaced with a [LCM Tool Output: file_xxx | \u2026] reference at assemble time. Fresh tail is never stubbed. The agent recovers the original output via lcm_describe(id=file_xxx, expandFile=true). Default off; requires running scripts/lcm-blob-migrate.mjs first to populate messages.large_content."
     },
     "leafChunkTokens": {
       "label": "Leaf Chunk Tokens",
@@ -347,7 +370,7 @@
     },
     "maxAssemblyTokenBudget": {
       "label": "Max Assembly Token Budget",
-      "help": "Hard ceiling for assembly token budget — caps runtime-provided and fallback budgets. Set for smaller context-window models (e.g., 30000 for 32k models)"
+      "help": "Hard ceiling for assembly token budget \u2014 caps runtime-provided and fallback budgets. Set for smaller context-window models (e.g., 30000 for 32k models)"
     },
     "summaryMaxOverageFactor": {
       "label": "Summary Max Overage Factor",
@@ -412,7 +435,7 @@
     "dynamicLeafChunkTokens.max": {
       "label": "Dynamic Leaf Chunk Max (Deprecated)",
       "help": "Deprecated compatibility setting. Automatic compaction now uses leafChunkTokens directly.",
-      "placeholder": "Auto (2 × Leaf Chunk Tokens)"
+      "placeholder": "Auto (2 \u00d7 Leaf Chunk Tokens)"
     },
     "timezone": {
       "label": "Timezone",
@@ -477,6 +500,30 @@
     "stripInjectedContextTags": {
       "label": "Strip Injected Context Tags",
       "help": "XML tag names whose blocks are stripped from messages before summarization. Covers memory/context plugin prepended blocks (active-memory, memory-lancedb, hindsight-openclaw). Set to [] to disable."
+    },
+    "storageBackend": {
+      "label": "Storage backend",
+      "help": "Experimental PostgreSQL engine opt-in. SQLite remains default.",
+      "advanced": true
+    },
+    "postgresSchema": {
+      "label": "PostgreSQL schema",
+      "help": "Pre-provisioned schema dedicated to one organization and agent.",
+      "advanced": true
+    },
+    "postgresOrganizationId": {
+      "label": "PostgreSQL organization",
+      "help": "Organization identity verified against the PostgreSQL schema.",
+      "advanced": true
+    },
+    "postgresAgentId": {
+      "label": "PostgreSQL agent",
+      "help": "Agent identity verified against the PostgreSQL schema; other agents are denied.",
+      "advanced": true
+    },
+    "postgresSchemas": {
+      "label": "PostgreSQL agent schemas",
+      "advanced": true
     }
   },
   "configSchema": {
@@ -924,6 +971,39 @@
           "relevant_memories",
           "hindsight_memories"
         ]
+      },
+      "storageBackend": {
+        "type": "string",
+        "enum": [
+          "sqlite",
+          "postgres"
+        ],
+        "default": "sqlite",
+        "description": "Experimental PostgreSQL engine opt-in. SQLite remains default."
+      },
+      "postgresSchema": {
+        "type": "string",
+        "pattern": "^lcm_[a-z0-9_]{1,55}$",
+        "description": "Pre-provisioned schema dedicated to one organization and agent."
+      },
+      "postgresOrganizationId": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Organization identity verified against the PostgreSQL schema."
+      },
+      "postgresAgentId": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$",
+        "description": "Agent identity verified against the PostgreSQL schema; other agents are denied."
+      },
+      "postgresSchemas": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 8,
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Explicit agent IDs mapped to distinct pre-provisioned PostgreSQL schemas. Use instead of postgresSchema/postgresAgentId."
       }
     }
   }

@@ -1,4 +1,4 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { StorageDatabase as DatabaseSync } from "../db/storage.js";
 
 /**
  * One run of visible transcript entries that LCM never stored and that sits
@@ -63,7 +63,7 @@ export class TranscriptGapStore {
   constructor(private readonly db: DatabaseSync) {}
 
   /** Record gaps for a conversation; returns how many markers were new. */
-  record(conversationId: number, gaps: readonly TranscriptHistoryGap[], source: string): number {
+  async record(conversationId: number, gaps: readonly TranscriptHistoryGap[], source: string): Promise<number> {
     const statement = this.db.prepare(
       `INSERT OR IGNORE INTO ${GAP_TABLE} (
          conversation_id, first_entry_id, last_entry_id, first_visible_seq,
@@ -72,7 +72,7 @@ export class TranscriptGapStore {
     );
     let inserted = 0;
     for (const gap of gaps) {
-      const result = statement.run(
+      const result = (await statement.run(
         conversationId,
         gap.firstEntryId,
         gap.lastEntryId,
@@ -82,18 +82,18 @@ export class TranscriptGapStore {
         gap.prevMessageId,
         gap.nextMessageId,
         source,
-      );
+      ));
       inserted += Number(result.changes);
     }
     return inserted;
   }
 
   /** Every marker of one conversation in transcript order. */
-  listForConversation(conversationId: number): TranscriptGapRecord[] {
-    if (!this.hasTable()) {
+  async listForConversation(conversationId: number): Promise<TranscriptGapRecord[]> {
+    if (!(await this.hasTable())) {
       return [];
     }
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT gap_id, conversation_id, first_entry_id, last_entry_id, first_visible_seq,
                 last_visible_seq, entry_count, prev_message_id, next_message_id, source, detected_at
@@ -101,16 +101,16 @@ export class TranscriptGapStore {
          WHERE conversation_id = ?
          ORDER BY first_visible_seq, gap_id`,
       )
-      .all(conversationId) as GapRow[];
+      .all(conversationId)) as GapRow[];
     return rows.map(toGapRecord);
   }
 
   /** Database-wide totals across every conversation. */
-  totals(): TranscriptGapTotals {
-    if (!this.hasTable()) {
+  async totals(): Promise<TranscriptGapTotals> {
+    if (!(await this.hasTable())) {
       return { conversations: 0, gaps: 0, entries: 0, largestGap: 0 };
     }
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT COUNT(DISTINCT conversation_id) AS conversations,
                 COUNT(*) AS gaps,
@@ -118,16 +118,16 @@ export class TranscriptGapStore {
                 COALESCE(MAX(entry_count), 0) AS largestGap
          FROM ${GAP_TABLE}`,
       )
-      .get() as TranscriptGapTotals;
+      .get()) as TranscriptGapTotals;
     return { ...row };
   }
 
   // Probe sqlite_master so reads against pre-migration databases return empty.
-  private hasTable(): boolean {
+  private async hasTable(): Promise<boolean> {
     return (
-      this.db
+      (await this.db
         .prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?`)
-        .get(GAP_TABLE) !== undefined
+        .get(GAP_TABLE)) !== undefined
     );
   }
 }

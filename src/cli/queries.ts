@@ -216,7 +216,7 @@ function getSummaryDepthStats(db: DatabaseSync, conversationId?: number): Summar
 }
 
 /** Return database-wide counts, token totals, time coverage, and maintenance state. */
-export function getGlobalStatus(db: DatabaseSync): GlobalStatus {
+export async function getGlobalStatus(db: DatabaseSync): Promise<GlobalStatus> {
   const row = db.prepare(`
     SELECT
       (SELECT COUNT(*) FROM conversations) AS conversationCount,
@@ -273,7 +273,7 @@ export function getGlobalStatus(db: DatabaseSync): GlobalStatus {
       running: row.maintenanceRunning,
       failed: row.maintenanceFailed,
     },
-    transcriptGaps: new TranscriptGapStore(db).totals(),
+    transcriptGaps: (await new TranscriptGapStore(db).totals()),
   };
 }
 
@@ -583,11 +583,11 @@ function getLargeFileStats(db: DatabaseSync, conversationId: number): LargeFileS
 }
 
 /** Return the complete read-only diagnostic projection for one conversation. */
-export function getConversationDiagnostics(
+export async function getConversationDiagnostics(
   db: DatabaseSync,
   selector: ConversationSelector,
   input: { freshTailCount: number; freshTailMaxTokens?: number },
-): ConversationDiagnostics {
+): Promise<ConversationDiagnostics> {
   const identity = resolveConversation(db, selector);
   const row = queryConversationRows(db, {
     limit: 1,
@@ -608,7 +608,7 @@ export function getConversationDiagnostics(
     bootstrap: getBootstrap(db, identity.conversationId),
     focusBriefs: getFocusBriefStats(db, identity.conversationId),
     largeFiles: getLargeFileStats(db, identity.conversationId),
-    transcriptGaps: new TranscriptGapStore(db).listForConversation(identity.conversationId),
+    transcriptGaps: (await new TranscriptGapStore(db).listForConversation(identity.conversationId)),
   };
 }
 

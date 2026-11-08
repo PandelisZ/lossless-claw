@@ -1,0 +1,107 @@
+{
+  "fixtureSha256": "597e3a64ffcd3c1121c34323f49fe865b9a2a7708897b76027d1e122f0e35ac0",
+  "sourceCommit": "51c3c90bfe82fa649e4895dd1a2c4874b5e28f76",
+  "recordedAt": "2026-11-08T02:31:54.056Z",
+  "transport": "local PgBouncer 1.24.1 transaction pooling (2 backends, DISCARD ALL)",
+  "postgres": "18.6 (Debian 18.6-1.pgdg13+2)",
+  "node": "v26.12.1",
+  "poolMax": 4,
+  "fullAssemblyOutputSha256": "d707aba9910cbf2e1e174db6ea36def0cf5a7ea95a8871de37c9f7275315ea01",
+  "initialContextItems": 95,
+  "initialMessages": 200,
+  "initialSummaryRows": 35,
+  "notes": [
+    "Every batched sample includes snapshot query, JSON decoding, exact pinned upstream assembler and disposal; not merely contextSnapshot.",
+    "Original unbatched benchmark files remain unchanged. These before/after samples share a fresh import and unchanged input.",
+    "Injected rows add a synthetic 2ms client timer before every read query. These are not production RTT or HA/replica evidence. Timer overhead/host noise mean total time is not exactly trips*2ms.",
+    "Assembly has no inference. Compaction uses a deterministic constant only at the inference boundary, no network model calls.",
+    "Compaction has 3 samples per mode, separate conversations with identical initial row counts and graph shape; p95=max. It includes SQL commits and any snapshot refresh.",
+    "Result sizes are UTF-8 JSON serialization bytes, not packet captures. All I/O is to the real local PostgreSQL instance or local PgBouncer."
+  ],
+  "results": [
+    {
+      "operation": "sqlite-full-assembly",
+      "samples": 20,
+      "concurrency": 1,
+      "injectedClientDelayPerQueryMs": 0,
+      "p50Ms": 4.89868400000023,
+      "p95Ms": 6.37763700000005,
+      "maxMs": 16.911907000000156,
+      "clientNetworkRoundTrips": 0,
+      "tripsPerOperation": 0,
+      "serializedOutputBytes": 1005440
+    },
+    {
+      "operation": "unbatched-full-assembly",
+      "samples": 20,
+      "concurrency": 1,
+      "injectedClientDelayPerQueryMs": 0,
+      "p50Ms": 62.101820999999745,
+      "p95Ms": 137.5836559999998,
+      "maxMs": 187.54438400000072,
+      "clientNetworkRoundTrips": 4620,
+      "tripsPerOperation": 231,
+      "serializedOutputBytes": 1005440
+    },
+    {
+      "operation": "batched-full-assembly",
+      "samples": 20,
+      "concurrency": 1,
+      "injectedClientDelayPerQueryMs": 0,
+      "p50Ms": 10.08837399999993,
+      "p95Ms": 13.359355999999934,
+      "maxMs": 13.691709000000628,
+      "clientNetworkRoundTrips": 20,
+      "tripsPerOperation": 1,
+      "serializedOutputBytes": 1005440
+    },
+    {
+      "operation": "unbatched-full-assembly-injected-2ms-per-query",
+      "samples": 8,
+      "concurrency": 1,
+      "injectedClientDelayPerQueryMs": 2,
+      "p50Ms": 589.846316000001,
+      "p95Ms": 664.6704200000004,
+      "maxMs": 664.6704200000004,
+      "clientNetworkRoundTrips": 1848,
+      "tripsPerOperation": 231,
+      "serializedOutputBytes": 402176
+    },
+    {
+      "operation": "batched-full-assembly-injected-2ms-per-query",
+      "samples": 8,
+      "concurrency": 1,
+      "injectedClientDelayPerQueryMs": 2,
+      "p50Ms": 11.810422000000472,
+      "p95Ms": 13.603053999999247,
+      "maxMs": 13.603053999999247,
+      "clientNetworkRoundTrips": 8,
+      "tripsPerOperation": 1,
+      "serializedOutputBytes": 402176
+    },
+    {
+      "operation": "unbatched-full-leaf-compaction",
+      "samples": 3,
+      "concurrency": 1,
+      "injectedClientDelayPerQueryMs": 0,
+      "p50Ms": 84.20843500000046,
+      "p95Ms": 118.93928799999958,
+      "maxMs": 118.93928799999958,
+      "clientNetworkRoundTrips": 597,
+      "tripsPerOperation": 199,
+      "serializedOutputBytes": 408
+    },
+    {
+      "operation": "batched-full-leaf-compaction",
+      "samples": 3,
+      "concurrency": 1,
+      "injectedClientDelayPerQueryMs": 0,
+      "p50Ms": 41.43095499999981,
+      "p95Ms": 43.487020000000484,
+      "maxMs": 43.487020000000484,
+      "clientNetworkRoundTrips": 33,
+      "tripsPerOperation": 11,
+      "serializedOutputBytes": 408
+    }
+  ]
+}

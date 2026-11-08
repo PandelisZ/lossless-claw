@@ -103,7 +103,7 @@ async function expectPartialCoverage(engine: LcmContextEngine, conversationId: n
 }
 
 /** Exercise the host's prompt-separate assembly contract. */
-function assemble(engine: LcmContextEngine, messages: AgentMessage[], tokenBudget = BUDGET) {
+async function assemble(engine: LcmContextEngine, messages: AgentMessage[], tokenBudget = BUDGET) {
   return engine.assemble({ sessionId: SESSION, messages, tokenBudget, prompt: "Next observation", availableTools: new Set(["inspect"]) });
 }
 
@@ -136,7 +136,7 @@ describe("foreground compaction before pressure eviction", () => {
     expect(messages).toEqual(original);
     expect(await persisted(engine, conversationId)).toEqual(before);
     const summaries = await engine.getSummaryStore().getSummariesByConversation(conversationId);
-    const linked = (await Promise.all(summaries.map(summary => engine.getSummaryStore().getSummaryMessages(summary.summaryId)))).flat();
+    const linked = (await Promise.all(summaries.map(async summary => engine.getSummaryStore().getSummaryMessages(summary.summaryId)))).flat();
     const context = await engine.getSummaryStore().getContextItems(conversationId);
     const retainedIds = new Set(context.map(item => item.messageId));
     const replacedIds = before.map(entry => entry.message.messageId).filter(messageId => !retainedIds.has(messageId));

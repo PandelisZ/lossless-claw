@@ -1,0 +1,39 @@
+{
+  "typecheck": {
+    "command": "mise exec -- npm run typecheck",
+    "passed": true
+  },
+  "build": {
+    "command": "mise exec -- npm run build",
+    "passed": true
+  },
+  "cli": {
+    "command": "mise exec -- node dist/cli.js --help",
+    "passed": true
+  },
+  "sqliteSuite": {
+    "command": "mise exec -- npm test -- --maxWorkers=2",
+    "filesPassed": 135,
+    "filesSkipped": 1,
+    "testsPassed": 2146,
+    "testsSkipped": 21,
+    "initialTimeouts": 3,
+    "note": "Three tests timed out on a loaded host. Same test files rerun below; no test policy changed."
+  },
+  "timeoutRerun": {
+    "command": "mise exec -- npx vitest run test/anti-replay-burst-regression.test.ts test/transaction-mutex.test.ts test/migration.test.ts --maxWorkers=1 --testTimeout=30000",
+    "filesPassed": 3,
+    "testsPassed": 40,
+    "failures": 0
+  },
+  "extraScoped": {
+    "files": 3,
+    "tests": 5,
+    "passed": true
+  },
+  "production": false,
+  "vci": {
+    "attested": 0,
+    "note": "Fork has no vci.toml. Default vci run skipped opt-in PG suite and refused attestation (process.env.enumerate); this is not live integration evidence. Explicit disposable runner results are recorded separately. Vex docs paths are not registered tests; shared policy was not changed."
+  }
+}

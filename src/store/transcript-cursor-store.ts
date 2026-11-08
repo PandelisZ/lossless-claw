@@ -1,4 +1,4 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { StorageDatabase as DatabaseSync } from "../db/storage.js";
 
 /** Mode marker for conversations that ingest only through the visible delta. */
 export const TRANSCRIPT_CURSOR_MODE = "cursor_v1";
@@ -60,14 +60,14 @@ export class TranscriptCursorStore {
   constructor(private readonly db: DatabaseSync) {}
 
   /** Return the cursor row for a conversation, or null for legacy/unknown conversations. */
-  get(conversationId: number): TranscriptCursorRecord | null {
-    const row = this.db
+  async get(conversationId: number): Promise<TranscriptCursorRecord | null> {
+    const row = (await this.db
       .prepare(
         `SELECT conversation_id, mode, cursor, frontier_entry_id, frontier_seq, origin
          FROM conversation_transcript_cursors
          WHERE conversation_id = ?`,
       )
-      .get(conversationId) as CursorRow | undefined;
+      .get(conversationId)) as CursorRow | undefined;
     if (!row) {
       return null;
     }
@@ -85,14 +85,14 @@ export class TranscriptCursorStore {
    * Insert or advance a conversation's cursor. `origin` is only written on
    * insert so the first entry into cursor mode stays visible in diagnostics.
    */
-  upsert(input: {
+  async upsert(input: {
     conversationId: number;
     cursor: string;
     frontierEntryId: string | null;
     frontierSeq: number | null;
     origin: TranscriptCursorOrigin;
-  }): void {
-    this.db
+  }): Promise<void> {
+    (await this.db
       .prepare(
         `INSERT INTO conversation_transcript_cursors (
            conversation_id, mode, cursor, frontier_entry_id, frontier_seq, origin
@@ -110,18 +110,18 @@ export class TranscriptCursorStore {
         input.frontierEntryId,
         input.frontierSeq,
         input.origin,
-      );
+      ));
   }
 
   /** Map every stamped transcript entry id of a conversation to its row. */
-  listStampedRows(conversationId: number): Map<string, StoredTranscriptRow> {
-    const rows = this.db
+  async listStampedRows(conversationId: number): Promise<Map<string, StoredTranscriptRow>> {
+    const rows = (await this.db
       .prepare(
         `SELECT message_id, seq, identity_hash, transcript_entry_id
          FROM messages
          WHERE conversation_id = ? AND transcript_entry_id IS NOT NULL`,
       )
-      .all(conversationId) as StoredRow[];
+      .all(conversationId)) as StoredRow[];
     const byEntryId = new Map<string, StoredTranscriptRow>();
     for (const row of rows) {
       byEntryId.set(row.transcript_entry_id!, toStoredTranscriptRow(row));
@@ -130,26 +130,26 @@ export class TranscriptCursorStore {
   }
 
   /** Count rows at or before `seq` that carry no transcript entry id. */
-  countUnstampedRowsThroughSeq(conversationId: number, seq: number): number {
-    const row = this.db
+  async countUnstampedRowsThroughSeq(conversationId: number, seq: number): Promise<number> {
+    const row = (await this.db
       .prepare(
         `SELECT COUNT(*) AS n
          FROM messages
          WHERE conversation_id = ? AND seq <= ? AND transcript_entry_id IS NULL`,
       )
-      .get(conversationId, seq) as { n: number };
+      .get(conversationId, seq)) as { n: number };
     return row.n;
   }
 
   /** Count rows strictly between two conversation seqs, stamped or not. */
-  countRowsBetweenSeq(conversationId: number, lowSeq: number, highSeq: number): number {
-    const row = this.db
+  async countRowsBetweenSeq(conversationId: number, lowSeq: number, highSeq: number): Promise<number> {
+    const row = (await this.db
       .prepare(
         `SELECT COUNT(*) AS n
          FROM messages
          WHERE conversation_id = ? AND seq > ? AND seq < ?`,
       )
-      .get(conversationId, lowSeq, highSeq) as { n: number };
+      .get(conversationId, lowSeq, highSeq)) as { n: number };
     return row.n;
   }
 
@@ -157,8 +157,8 @@ export class TranscriptCursorStore {
    * List rows after `afterSeq` in conversation order for suffix content
    * matching, each with its stored tool-call ids and whether it has text.
    */
-  listContentMatchCandidatesAfterSeq(conversationId: number, afterSeq: number): ContentMatchCandidate[] {
-    const rows = this.db
+  async listContentMatchCandidatesAfterSeq(conversationId: number, afterSeq: number): Promise<ContentMatchCandidate[]> {
+    const rows = (await this.db
       .prepare(
         `SELECT m.message_id, m.seq, m.identity_hash, m.transcript_entry_id,
                 length(trim(m.content, ' ' || char(9, 10, 13))) > 0 AS has_content,
@@ -169,7 +169,7 @@ export class TranscriptCursorStore {
          WHERE m.conversation_id = ? AND m.seq > ?
          ORDER BY m.seq`,
       )
-      .all(conversationId, afterSeq) as Array<StoredRow & { has_content: number; tool_call_ids: string | null }>;
+      .all(conversationId, afterSeq)) as Array<StoredRow & { has_content: number; tool_call_ids: string | null }>;
     return rows.map((row) => ({
       ...toStoredTranscriptRow(row),
       toolCallIds: row.tool_call_ids ? row.tool_call_ids.split("\u001f") : [],

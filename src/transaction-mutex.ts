@@ -15,7 +15,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { DatabaseSync } from "node:sqlite";
+import { isPostgresDatabase, type StorageDatabase as DatabaseSync } from "./db/storage.js";
 
 interface MutexState {
   /** Tail of the promise chain — each acquirer appends to this. */
@@ -144,6 +144,9 @@ export async function withExclusiveDatabaseLock<T>(
   options: { timeoutMs: number },
   operation: () => Promise<T> | T,
 ): Promise<T> {
+  if (isPostgresDatabase(db)) {
+    throw new Error("Exclusive SQLite maintenance is unavailable on PostgreSQL");
+  }
   const release = await acquireTransactionLockWithTimeout(db, options.timeoutMs);
   try {
     const heldLocks = new Map(heldLockContext.getStore() ?? []);
@@ -168,6 +171,7 @@ export async function withDatabaseTransaction<T>(
   beginStatement: BeginTransactionStatement,
   operation: () => Promise<T> | T,
 ): Promise<T> {
+  if (isPostgresDatabase(db)) return db.transaction(operation);
   if (getHeldLockDepth(db) > 0) {
     const savepointName = nextSavepointName();
     db.exec(`SAVEPOINT ${savepointName}`);

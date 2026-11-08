@@ -1,4 +1,4 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { StorageDatabase as DatabaseSync } from "./db/storage.js";
 import { buildMessageParts, toStoredMessage } from "./message-content.js";
 import type { AgentMessage } from "./openclaw-bridge.js";
 import {
@@ -142,19 +142,19 @@ export async function filterPersistedRawIdReplayBatch(params: {
       ];
       let rows: Array<{ messageId: number }>;
       if (canMatchWithoutIdentity) {
-        rows = rawCoverageStmt.all(
+        rows = (await rawCoverageStmt.all(
           params.conversationId,
           stored.role,
           ...rawIdArgs,
-        ) as Array<{ messageId: number }>;
+        )) as Array<{ messageId: number }>;
       } else {
         const identityHash = buildMessageIdentityHash(stored.role, stored.content);
-        rows = identityCoverageStmt.all(
+        rows = (await identityCoverageStmt.all(
           params.conversationId,
           stored.role,
           identityHash,
           ...rawIdArgs,
-        ) as Array<{ messageId: number }>;
+        )) as Array<{ messageId: number }>;
       }
       for (const row of rows) {
         const matchedRawIds = coverageByMessageId.get(row.messageId) ?? new Set<string>();
@@ -169,7 +169,7 @@ export async function filterPersistedRawIdReplayBatch(params: {
         if (rawIds.size !== matchedIds.size) {
           continue;
         }
-        const rows = rawBlockSignatureStmt.all(messageId) as Array<{ metadata: string | null }>;
+        const rows = (await rawBlockSignatureStmt.all(messageId)) as Array<{ metadata: string | null }>;
         if (rows.length !== parts.length) {
           continue;
         }
@@ -240,7 +240,7 @@ export async function filterPersistedRawIdReplayBatch(params: {
         if (rawIds.size !== matchedIds.size) {
           continue;
         }
-        const rows = rawBlockSignatureStmt.all(messageId) as Array<{ metadata: string | null }>;
+        const rows = (await rawBlockSignatureStmt.all(messageId)) as Array<{ metadata: string | null }>;
         if (
           rows.length === parts.length &&
           rows.every((row, index) => row.metadata === (parts[index]?.metadata ?? null))
@@ -282,11 +282,11 @@ export async function filterPersistedRawIdReplayBatch(params: {
           rawId,
           rawId,
         ];
-        const rows = externalizedCoverageStmt.all(
+        const rows = (await externalizedCoverageStmt.all(
           params.conversationId,
           stored.role,
           ...rawIdArgs,
-        ) as Array<{
+        )) as Array<{
           messageId: number;
           fileId: unknown;
           originalByteSize: unknown;

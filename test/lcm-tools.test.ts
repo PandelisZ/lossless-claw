@@ -145,8 +145,8 @@ function buildLcmEngine(params: {
 }
 
 describe("LCM tools session scoping", () => {
-  beforeEach(() => {
-    resetDelegatedExpansionGrantsForTests();
+  beforeEach(async () => {
+    (await resetDelegatedExpansionGrantsForTests());
   });
 
   it("lcm_grep metadata explains focused FTS5 query construction", () => {
@@ -340,12 +340,12 @@ describe("LCM tools session scoping", () => {
       describe: vi.fn(),
     };
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:session-1",
       issuerSessionId: "main",
       allowedConversationIds: [42],
       tokenCap: 120,
-    });
+    }));
 
     const tool = createLcmExpandTool({
       deps: makeDeps(),
@@ -963,12 +963,12 @@ describe("LCM tools session scoping", () => {
       describe: vi.fn(),
     };
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:session-1",
       issuerSessionId: "main",
       allowedConversationIds: [42],
       tokenCap: 120,
-    });
+    }));
 
     const tool = createLcmGrepTool({
       deps: makeDeps(),
@@ -1012,12 +1012,12 @@ describe("LCM tools session scoping", () => {
       })),
     };
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey,
       issuerSessionId: "main",
       allowedConversationIds: [42],
       tokenCap: 120,
-    });
+    }));
 
     const tool = createLcmDescribeTool({
       deps: makeDeps(),
@@ -1053,12 +1053,12 @@ describe("LCM tools session scoping", () => {
       describe: vi.fn(),
     };
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:session-1",
       issuerSessionId: "main",
       allowedConversationIds: [42],
       tokenCap: 120,
-    });
+    }));
 
     const tool = createLcmGrepTool({
       deps: makeDeps(),
@@ -1181,12 +1181,12 @@ describe("LCM tools session scoping", () => {
       })),
     };
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: "agent:main:subagent:session-1",
       issuerSessionId: "main",
       allowedConversationIds: [42],
       tokenCap: 120,
-    });
+    }));
 
     const tool = createLcmDescribeTool({
       deps: makeDeps(),

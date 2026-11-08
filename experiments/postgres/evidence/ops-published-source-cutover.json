@@ -1,0 +1,68 @@
+{
+  "seed": 20261104,
+  "sourceFixtureSha256": "af724fb7cd2504ac3e593b16090d63179bdd0ee25e3617991e25d8be14f2b5cf",
+  "environment": "disposable local PostgreSQL; synthetic payload derivative; no inference",
+  "production": false,
+  "reports": [
+    {
+      "organizationId": "org1",
+      "agentId": "agent1",
+      "importedMessages": 1200,
+      "afterCutoverMessages": 1201,
+      "importHash": "7f70fac9da0c99d6aa7ca2b80ecc8bcc88eb48c10c44b24223e78ef12f775407",
+      "backupHash": "c4c41e5c8ddf09dfad3699e1cacaa188c8f28b55fa7640715b3fee4739312d76",
+      "rollbackHash": "7290635e5ddb1dc83e07469ba77d8703b9f6b673228ae05806f5247009d8eabe",
+      "files": 6
+    },
+    {
+      "organizationId": "org1",
+      "agentId": "agent2",
+      "importedMessages": 1200,
+      "afterCutoverMessages": 1201,
+      "importHash": "7e0af986a8e51e4254623d0d9e53b6b675da27a885a0241aa83a996669d23fbd",
+      "backupHash": "b311cdd83d9d91cac39317e0e4bf37b707a377e3762a7e9fd172522634eb5629",
+      "rollbackHash": "af46b3e5dbd9c6ad5be0cb6341e2e7f2556bb77752512140f1a7934730fcb358",
+      "files": 6
+    },
+    {
+      "organizationId": "org1",
+      "agentId": "agent3",
+      "importedMessages": 1200,
+      "afterCutoverMessages": 1201,
+      "importHash": "5a1b2ed1ad8570e885c3a8b0644e458c807f69b8d54c7067add4a670942ff6a9",
+      "backupHash": "82b0ee07872382e344f94c35daaa84fc86a34f75f20e249048adedb9300a88e4",
+      "rollbackHash": "13a6c6f71dea36c4f970ed037e090c6112a90a2b31b0ea965f862f6f2f8bbc07",
+      "files": 6
+    },
+    {
+      "organizationId": "org2",
+      "agentId": "agent1",
+      "importedMessages": 1200,
+      "afterCutoverMessages": 1201,
+      "importHash": "68fe8ca8845b003afa445a8f63693af0e9358f0c4d6144d28c5862d3ab723165",
+      "backupHash": "2374d667655e65da44ba8b2a194292c641f35821fd6f629c97e7a804ffd1ff14",
+      "rollbackHash": "52fd94f7b1661c1aefb2895297d2c748a2bd05ea27b11117dd4e1bf0a46ea596",
+      "files": 6
+    },
+    {
+      "organizationId": "org2",
+      "agentId": "agent2",
+      "importedMessages": 1200,
+      "afterCutoverMessages": 1201,
+      "importHash": "3952dcfce5e8d2a2bd649ab0249a460d3e70fa12ca7c7cdaa99a7a086a94fa61",
+      "backupHash": "e15f39fe98b2206279ff78bd31090a5f7033edca81d70cd29df0202fd85487ba",
+      "rollbackHash": "ef9b89d360e77564e7c7859210d6ee79393cc99d8e56120e3a24fdcfc9e4837d",
+      "files": 6
+    },
+    {
+      "organizationId": "org2",
+      "agentId": "agent3",
+      "importedMessages": 1200,
+      "afterCutoverMessages": 1201,
+      "importHash": "ec5719379d3de2193333443e2b798dcddad6a06876531aedf3071fbae908743d",
+      "backupHash": "d4958143cd53ea4cc7dae1955503caea049e45cfc4b04dc3e04152dc0e073910",
+      "rollbackHash": "9ea082aa95311d424c96ecc5e9038381ba75967bfb6cc3a368880c39d9c67d66",
+      "files": 6
+    }
+  ]
+}

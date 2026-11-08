@@ -1,3 +1,5 @@
+import type { StorageDatabase } from "../db/storage.js";
+import type { LcmContextEngine } from "../engine.js";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -896,11 +898,11 @@ function getLcmStatusStats(db: DatabaseSync): LcmStatusStats {
   };
 }
 
-function getConversationStatusStats(
-  db: DatabaseSync,
+async function getConversationStatusStats(
+  db: StorageDatabase,
   conversationId: number,
-): LcmConversationStatusStats | null {
-  const row = db
+): Promise<LcmConversationStatusStats | null> {
+  const row = (await db
     .prepare(
       `SELECT
          c.conversation_id,
@@ -938,7 +940,7 @@ function getConversationStatusStats(
        FROM conversations c
        WHERE c.conversation_id = ?`,
     )
-    .get(conversationId) as
+    .get(conversationId)) as
     | {
         conversation_id: number;
         session_id: string;
@@ -978,11 +980,11 @@ function normalizeIdentity(value: string | undefined): string | undefined {
   return normalized ? normalized : undefined;
 }
 
-function getConversationStatusBySessionKey(
-  db: DatabaseSync,
+async function getConversationStatusBySessionKey(
+  db: StorageDatabase,
   sessionKey: string,
-): LcmConversationStatusStats | null {
-  const row = db
+): Promise<LcmConversationStatusStats | null> {
+  const row = (await db
     .prepare(
       `SELECT conversation_id
        FROM conversations
@@ -990,20 +992,20 @@ function getConversationStatusBySessionKey(
        ORDER BY active DESC, created_at DESC
        LIMIT 1`,
     )
-    .get(sessionKey) as { conversation_id: number } | undefined;
+    .get(sessionKey)) as { conversation_id: number } | undefined;
 
   if (!row) {
     return null;
   }
 
-  return getConversationStatusStats(db, row.conversation_id);
+  return (await getConversationStatusStats(db, row.conversation_id));
 }
 
-function getConversationStatusBySessionId(
-  db: DatabaseSync,
+async function getConversationStatusBySessionId(
+  db: StorageDatabase,
   sessionId: string,
-): LcmConversationStatusStats | null {
-  const row = db
+): Promise<LcmConversationStatusStats | null> {
+  const row = (await db
     .prepare(
       `SELECT conversation_id
        FROM conversations
@@ -1011,13 +1013,13 @@ function getConversationStatusBySessionId(
        ORDER BY active DESC, created_at DESC
        LIMIT 1`,
     )
-    .get(sessionId) as { conversation_id: number } | undefined;
+    .get(sessionId)) as { conversation_id: number } | undefined;
 
   if (!row) {
     return null;
   }
 
-  return getConversationStatusStats(db, row.conversation_id);
+  return (await getConversationStatusStats(db, row.conversation_id));
 }
 
 async function getConversationCompactionMaintenanceByConversationId(
@@ -1031,19 +1033,19 @@ async function getConversationCompactionMaintenanceByConversationId(
 
 async function resolveCurrentConversation(params: {
   ctx: PluginCommandContext;
-  db: DatabaseSync;
+  db: StorageDatabase;
 }): Promise<CurrentConversationResolution> {
   const sessionKey = normalizeIdentity(params.ctx.sessionKey);
   const sessionId = normalizeIdentity(params.ctx.sessionId);
 
   if (sessionKey) {
-    const bySessionKey = getConversationStatusBySessionKey(params.db, sessionKey);
+    const bySessionKey = (await getConversationStatusBySessionKey(params.db, sessionKey));
     if (bySessionKey) {
       return { kind: "resolved", source: "session_key", stats: bySessionKey };
     }
 
     if (sessionId) {
-      const bySessionId = getConversationStatusBySessionId(params.db, sessionId);
+      const bySessionId = (await getConversationStatusBySessionId(params.db, sessionId));
       if (bySessionId) {
         if (!bySessionId.sessionKey || bySessionId.sessionKey === sessionKey) {
           return {
@@ -1069,7 +1071,7 @@ async function resolveCurrentConversation(params: {
   }
 
   if (sessionId) {
-    const bySessionId = getConversationStatusBySessionId(params.db, sessionId);
+    const bySessionId = (await getConversationStatusBySessionId(params.db, sessionId));
     if (bySessionId) {
       return { kind: "resolved", source: "session_id", stats: bySessionId };
     }
@@ -1090,7 +1092,7 @@ async function resolveDoctorApplyConversationById(
   db: DatabaseSync,
   conversationId: number,
 ): Promise<CurrentConversationResolution> {
-  const stats = getConversationStatusStats(db, conversationId);
+  const stats = (await getConversationStatusStats(db, conversationId));
   if (!stats) {
     return {
       kind: "unavailable",
@@ -1555,7 +1557,7 @@ async function buildStatusText(params: {
   const doctor = getDoctorSummaryStats(params.db);
   const rolloverSplits = scanRolloverSplits(params.db);
   const gapStore = new TranscriptGapStore(params.db);
-  const gapTotals = gapStore.totals();
+  const gapTotals = (await gapStore.totals());
   const enabled = resolvePluginEnabled(params.ctx.config);
   const selected = resolvePluginSelected(params.ctx.config);
   const slot = resolveContextEngineSlot(params.ctx.config);
@@ -1630,7 +1632,7 @@ async function buildStatusText(params: {
     });
     const formatMaintenanceTime = (value: Date | null): string =>
       value ? formatTimestamp(value, params.config.timezone) : "never";
-    const conversationGaps = gapStore.listForConversation(current.stats.conversationId);
+    const conversationGaps = (await gapStore.listForConversation(current.stats.conversationId));
     lines.push(
       buildSection("📍 Current conversation", [
         buildStatLine("conversation id", formatNumber(current.stats.conversationId)),
@@ -1698,7 +1700,7 @@ async function buildDoctorText(params: {
   });
   const current = await resolveCurrentConversation(params);
   const gapStore = new TranscriptGapStore(params.db);
-  const gapTotals = gapStore.totals();
+  const gapTotals = (await gapStore.totals());
   const versionScan = params.activeSourcePath
     ? scanLcmVersionCopies({
         activeSourcePath: params.activeSourcePath,
@@ -1772,7 +1774,7 @@ async function buildDoctorText(params: {
   );
   const gapSection = buildTranscriptGapSection(
     gapTotals,
-    gapStore.listForConversation(current.stats.conversationId),
+    (await gapStore.listForConversation(current.stats.conversationId)),
   );
   if (gapSection) {
     lines.push("", gapSection);
@@ -2275,7 +2277,7 @@ async function buildFocusSummaryLines(params: {
 // Build the read-only status response for the current conversation's latest focus brief.
 async function buildFocusStatusText(params: {
   ctx: PluginCommandContext;
-  db: DatabaseSync;
+  db: StorageDatabase;
   config: LcmConfig;
 }): Promise<string> {
   const lines = [
@@ -2366,7 +2368,7 @@ async function buildFocusStatusText(params: {
 // Generate an active focus brief through a delegated subagent and persist the result.
 async function buildFocusGenerateText(params: {
   ctx: PluginCommandContext;
-  db: DatabaseSync;
+  db: StorageDatabase;
   config: LcmConfig;
   deps?: LcmDependencies;
   getLcm?: () => Promise<RuntimeCommandEngine>;
@@ -2594,7 +2596,7 @@ function isSummaryAfterFocusWatermark(
 // active replacement is generated and persisted successfully.
 async function buildRefocusText(params: {
   ctx: PluginCommandContext;
-  db: DatabaseSync;
+  db: StorageDatabase;
   config: LcmConfig;
   deps?: LcmDependencies;
   getLcm?: () => Promise<RuntimeCommandEngine>;
@@ -2826,7 +2828,7 @@ async function buildRefocusText(params: {
 // Deactivate the current focus overlay without deleting focus history.
 async function buildUnfocusText(params: {
   ctx: PluginCommandContext;
-  db: DatabaseSync;
+  db: StorageDatabase;
   config: LcmConfig;
   deps?: LcmDependencies;
   getLcm?: () => Promise<RuntimeCommandEngine>;
@@ -3460,3 +3462,35 @@ export const __testing = {
   resolvePluginEnabled,
   resolvePluginSelected,
 };
+
+/** PostgreSQL reuses native focus workflows; SQLite-only repair/backup remains explicit. */
+export function createPostgresLcmCommand(params: {
+  db: (ctx?:PluginCommandContext) => Promise<StorageDatabase>;
+  config: LcmConfig;
+  deps: LcmDependencies;
+  getLcm: (ctx?:PluginCommandContext) => Promise<LcmContextEngine>;
+}): OpenClawPluginCommandDefinition {
+  return {
+    name: "lcm",
+    nativeNames: {default:"lossless"},
+    description: "Lossless Claw PostgreSQL status and focus controls",
+    acceptsArgs: true,
+    handler: async (ctx) => {
+      const engine = await params.getLcm(ctx);
+      if(!ctx.sessionKey) throw new Error("PostgreSQL commands require an agent-scoped session key");
+      engine.assertStorageAuthority(ctx);
+      return engine.withStorageAuthority(async()=>{
+        const parsed=parseLcmCommand(ctx.args);
+        const options={...params,getLcm:()=>params.getLcm(ctx),ctx,db:await params.db(ctx)};
+        switch(parsed.kind){
+          case "status": return {text:JSON.stringify(await engine.control({operation:"status",sessionId:ctx.sessionId,sessionKey:ctx.sessionKey,agentId:ctx.agentId}))};
+          case "focus_status": return {text:await buildFocusStatusText(options)};
+          case "focus_generate": return {text:await buildFocusGenerateText({...options,prompt:parsed.prompt})};
+          case "refocus": return {text:await buildRefocusText(options)};
+          case "unfocus": return {text:await buildUnfocusText(options)};
+          default: return {text:"PostgreSQL supports status, focus, refocus and unfocus. SQLite doctor, explorer, backup and CLI inspection are unavailable; use PostgreSQL integrity and export tools."};
+        }
+      });
+    },
+  };
+}

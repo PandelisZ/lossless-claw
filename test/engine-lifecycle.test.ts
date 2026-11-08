@@ -28,8 +28,8 @@ import {
   TestLcmContextEngine,
 } from "./helpers.js";
 
-afterEach(() => {
-  cleanupEngineTestState();
+afterEach(async () => {
+  (await cleanupEngineTestState());
   resetStartupBannerLogsForTests();
 });
 
@@ -333,25 +333,25 @@ describe("LcmContextEngine ignored sessions", () => {
 
     expect(ignored).toBeUndefined();
     expect(included).toBeDefined();
-    expect(resolveDelegatedExpansionGrantId(childSessionKey)).not.toBeNull();
+    expect((await resolveDelegatedExpansionGrantId(childSessionKey))).not.toBeNull();
 
-    included?.rollback?.();
-    expect(resolveDelegatedExpansionGrantId(childSessionKey)).toBeNull();
+    await included?.rollback?.();
+    expect((await resolveDelegatedExpansionGrantId(childSessionKey))).toBeNull();
   });
 
   it("skips onSubagentEnded for ignored sessions while cleaning up included child grants", async () => {
     const ignoredChildSessionKey = "agent:main:cron:child";
     const includedChildSessionKey = "agent:main:subagent:child";
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: ignoredChildSessionKey,
       issuerSessionId: "issuer-1",
       allowedConversationIds: [1],
-    });
-    createDelegatedExpansionGrant({
+    }));
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: includedChildSessionKey,
       issuerSessionId: "issuer-2",
       allowedConversationIds: [2],
-    });
+    }));
 
     const engine = createEngineWithConfig({
       ignoreSessionPatterns: ["agent:*:cron:**"],
@@ -366,12 +366,12 @@ describe("LcmContextEngine ignored sessions", () => {
       reason: "deleted",
     });
 
-    expect(resolveDelegatedExpansionGrantId(ignoredChildSessionKey)).not.toBeNull();
-    expect(resolveDelegatedExpansionGrantId(includedChildSessionKey)).toBeNull();
+    expect((await resolveDelegatedExpansionGrantId(ignoredChildSessionKey))).not.toBeNull();
+    expect((await resolveDelegatedExpansionGrantId(includedChildSessionKey))).toBeNull();
     expect(
-      getRuntimeExpansionAuthManager().getGrant(
-        resolveDelegatedExpansionGrantId(ignoredChildSessionKey)!,
-      ),
+      (await getRuntimeExpansionAuthManager().getGrant(
+        (await resolveDelegatedExpansionGrantId(ignoredChildSessionKey))!,
+      )),
     ).not.toBeNull();
   });
 });
@@ -739,19 +739,19 @@ describe("LcmContextEngine stateless sessions", () => {
     });
 
     expect(skipped).toBeUndefined();
-    expect(resolveDelegatedExpansionGrantId(childSessionKey)).not.toBeNull();
+    expect((await resolveDelegatedExpansionGrantId(childSessionKey))).not.toBeNull();
 
-    included?.rollback?.();
-    expect(resolveDelegatedExpansionGrantId(childSessionKey)).toBeNull();
+    await included?.rollback?.();
+    expect((await resolveDelegatedExpansionGrantId(childSessionKey))).toBeNull();
   });
 
   it("skips subagent cleanup for stateless child session keys", async () => {
     const childSessionKey = statelessSessionKey;
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: childSessionKey,
       issuerSessionId: "issuer-1",
       allowedConversationIds: [1],
-    });
+    }));
 
     const engine = createEngineWithConfig({
       statelessSessionPatterns: ["agent:*:subagent:worker-*"],
@@ -762,7 +762,7 @@ describe("LcmContextEngine stateless sessions", () => {
       reason: "deleted",
     });
 
-    expect(resolveDelegatedExpansionGrantId(childSessionKey)).not.toBeNull();
+    expect((await resolveDelegatedExpansionGrantId(childSessionKey))).not.toBeNull();
   });
 });
 

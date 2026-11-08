@@ -296,7 +296,7 @@ describe("PendingSummaryStore", () => {
       promptVersion: "leaf:v1",
       model: "test-model",
     });
-    const insertCondensed = (nodeId: string, ordinalEnd: number, status: string) =>
+    const insertCondensed = async (nodeId: string, ordinalEnd: number, status: string) =>
       pendingSummaryStore
         .insertNode({
           nodeId,

@@ -30,7 +30,7 @@ it.each([10_000, 300])("owns delayed summary work in maintenance, not the comple
   await seedBacklogContext(engine, sessionId, [120, 120, 120]);
   await engine.ingest({ sessionId, message: makeMessage({ role: "user", content: "fresh tail" }) });
   const foreground = { open: true, name: "foreground" };
-  await owner.run(foreground, () => engine.afterTurn({
+  await owner.run(foreground, async () => engine.afterTurn({
     sessionId, sessionFile, messages: [], prePromptMessageCount: 0, tokenBudget,
     runtimeContext: { llm: { complete: foregroundComplete } },
   }));
@@ -42,7 +42,7 @@ it.each([10_000, 300])("owns delayed summary work in maintenance, not the comple
 
   const background = { open: true, name: "maintenance" };
   let settled = false;
-  const maintenance = owner.run(background, () => engine.maintain({
+  const maintenance = owner.run(background, async () => engine.maintain({
     sessionId, sessionFile,
     runtimeContext: { allowDeferredCompactionExecution: true, tokenBudget, llm: { complete: backgroundComplete } },
   })).finally(() => { settled = true; background.open = false; });

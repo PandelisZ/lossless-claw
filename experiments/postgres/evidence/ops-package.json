@@ -1,0 +1,58 @@
+{
+  "production": false,
+  "pin": {
+    "format": 1,
+    "sourceRepository": "https://github.com/PandelisZ/lossless-claw",
+    "commit": "d14a127072b342467be36cbadef09082d0f03d93",
+    "nativeBaseline": "51c3c90bfe82fa649e4895dd1a2c4874b5e28f76",
+    "schemaVersion": 1,
+    "node": "v26.13.0",
+    "npm": "11.20.0",
+    "lockSha256": "db5ad53723f9a330fd60bb25d1bd63c69b05397647147e2982f073bb3ced18fd",
+    "published": false,
+    "package": "@pandelis/lossless-claw",
+    "version": "1.3.0-turbopuffer.0",
+    "sha256": "6cbdaf1ac1052d00fe20cb24054b92a262d14de946fe42e52a2e4bf35fae60e3",
+    "integrity": "sha512-EYhraeXUdmr1Ns//DaqmKSsilWHCFpgQkUQ0dCgq1n9QKGnIMBdilAZRMPX3PgDmZS6muh8B99MWCf3TNH+ttw==",
+    "bytes": 584088,
+    "archive": "lcm-postgres-d14a127072b342467be36cbadef09082d0f03d93-6cbdaf1ac1052d00fe20cb24054b92a262d14de946fe42e52a2e4bf35fae60e3.tgz"
+  },
+  "independentCleanBuilds": 2,
+  "identicalArchiveBytes": true,
+  "consumers": [
+    {
+      "node": "v22.23.3",
+      "commit": "d14a127072b342467be36cbadef09082d0f03d93",
+      "archiveSha256": "6cbdaf1ac1052d00fe20cb24054b92a262d14de946fe42e52a2e4bf35fae60e3",
+      "contracts": [
+        "@pandelis/lossless-claw",
+        "@pandelis/lossless-claw/package.json",
+        "@pandelis/lossless-claw/doctor-contract-api.js",
+        "@pandelis/lossless-claw/dist/experimental/context-storage.js",
+        "@pandelis/lossless-claw/dist/experimental/postgres-operations.js"
+      ],
+      "resolutionPassed": true,
+      "experimentalImportsPassed": true,
+      "operatorHelpPassed": true,
+      "unconfiguredPostgresRejected": true,
+      "production": false
+    },
+    {
+      "node": "v26.13.0",
+      "commit": "d14a127072b342467be36cbadef09082d0f03d93",
+      "archiveSha256": "6cbdaf1ac1052d00fe20cb24054b92a262d14de946fe42e52a2e4bf35fae60e3",
+      "contracts": [
+        "@pandelis/lossless-claw",
+        "@pandelis/lossless-claw/package.json",
+        "@pandelis/lossless-claw/doctor-contract-api.js",
+        "@pandelis/lossless-claw/dist/experimental/context-storage.js",
+        "@pandelis/lossless-claw/dist/experimental/postgres-operations.js"
+      ],
+      "resolutionPassed": true,
+      "experimentalImportsPassed": true,
+      "operatorHelpPassed": true,
+      "unconfiguredPostgresRejected": true,
+      "production": false
+    }
+  ]
+}

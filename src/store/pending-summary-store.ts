@@ -1,4 +1,4 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { StorageDatabase as DatabaseSync } from "../db/storage.js";
 import { withDatabaseTransaction } from "../transaction-mutex.js";
 import { parseUtcTimestampOrNull } from "./parse-utc-timestamp.js";
 import type {
@@ -204,7 +204,7 @@ export class PendingSummaryStore {
       input.compactableStartOrdinal,
       input.compactableEndOrdinal,
     );
-    this.db
+    (await this.db
       .prepare(
         `INSERT INTO pending_compaction_batches (
            batch_id,
@@ -234,7 +234,7 @@ export class PendingSummaryStore {
           : null,
         input.promptVersion,
         input.model,
-      );
+      ));
 
     const batch = await this.getBatch(input.batchId);
     if (!batch) {
@@ -245,7 +245,7 @@ export class PendingSummaryStore {
 
   /** Load a pending compaction batch by id. */
   async getBatch(batchId: string): Promise<PendingCompactionBatchRecord | null> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT batch_id,
                 conversation_id,
@@ -265,7 +265,7 @@ export class PendingSummaryStore {
          FROM pending_compaction_batches
          WHERE batch_id = ?`,
       )
-      .get(batchId) as PendingCompactionBatchRow | undefined;
+      .get(batchId)) as PendingCompactionBatchRow | undefined;
     return row ? toBatchRecord(row) : null;
   }
 
@@ -281,7 +281,7 @@ export class PendingSummaryStore {
       input.compactableStartOrdinal,
       input.compactableEndOrdinal,
     );
-    const result = this.db
+    const result = (await this.db
       .prepare(
         `UPDATE pending_compaction_batches
          SET source_projection_fingerprint = ?,
@@ -300,7 +300,7 @@ export class PendingSummaryStore {
           ? normalizeNonNegativeInteger(input.plannedFreshTailStartOrdinal)
           : null,
         input.batchId,
-      );
+      ));
     return Number(result.changes ?? 0) > 0;
   }
 
@@ -308,7 +308,7 @@ export class PendingSummaryStore {
   async getActiveBatchForConversation(
     conversationId: number,
   ): Promise<PendingCompactionBatchRecord | null> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT batch_id,
                 conversation_id,
@@ -331,13 +331,13 @@ export class PendingSummaryStore {
          ORDER BY created_at DESC, batch_id DESC
          LIMIT 1`,
       )
-      .get(conversationId) as PendingCompactionBatchRow | undefined;
+      .get(conversationId)) as PendingCompactionBatchRow | undefined;
     return row ? toBatchRecord(row) : null;
   }
 
   /** Return whether this debt window already published a canonical batch. */
   async hasPublishedBatchSince(conversationId: number, since: Date): Promise<boolean> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT 1
          FROM pending_compaction_batches
@@ -346,13 +346,13 @@ export class PendingSummaryStore {
            AND julianday(published_at) >= julianday(?)
          LIMIT 1`,
       )
-      .get(conversationId, since.toISOString());
+      .get(conversationId, since.toISOString()));
     return row !== undefined;
   }
 
   /** Mark a pending compaction batch as published. */
   async markBatchPublished(input: { batchId: string; publishedAt?: Date }): Promise<void> {
-    this.db
+    (await this.db
       .prepare(
         `UPDATE pending_compaction_batches
          SET status = 'published',
@@ -361,13 +361,13 @@ export class PendingSummaryStore {
              updated_at = datetime('now')
          WHERE batch_id = ?`,
       )
-      .run(nullableDateToIso(input.publishedAt), input.batchId);
+      .run(nullableDateToIso(input.publishedAt), input.batchId));
   }
 
   /** Mark a pending compaction batch as stale. */
   async markBatchStale(input: { batchId: string; failureSummary?: string | null }): Promise<void> {
     await this.withTransaction(async () => {
-      this.db
+      (await this.db
         .prepare(
           `UPDATE pending_compaction_batches
            SET status = 'stale',
@@ -375,8 +375,8 @@ export class PendingSummaryStore {
                updated_at = datetime('now')
            WHERE batch_id = ?`,
         )
-        .run(input.failureSummary ?? null, input.batchId);
-      this.db
+        .run(input.failureSummary ?? null, input.batchId));
+      (await this.db
         .prepare(
           `UPDATE pending_summary_nodes
            SET status = 'stale',
@@ -387,14 +387,14 @@ export class PendingSummaryStore {
            WHERE batch_id = ?
              AND status IN ('planned', 'running', 'ready', 'failed')`,
         )
-        .run(input.failureSummary ?? null, input.batchId);
+        .run(input.failureSummary ?? null, input.batchId));
     });
   }
 
   /** Insert a pending summary node into a batch. */
   async insertNode(input: InsertPendingSummaryNodeInput): Promise<PendingSummaryNodeRecord> {
     const ordinalRange = normalizeOrdinalRange(input.ordinalStart, input.ordinalEnd);
-    this.db
+    (await this.db
       .prepare(
         `INSERT INTO pending_summary_nodes (
            node_id,
@@ -428,7 +428,7 @@ export class PendingSummaryStore {
         typeof input.tokenCount === "number" ? normalizeNonNegativeInteger(input.tokenCount) : null,
         input.promptVersion,
         input.model,
-      );
+      ));
 
     const node = await this.getNode(input.nodeId);
     if (!node) {
@@ -439,7 +439,7 @@ export class PendingSummaryStore {
 
   /** Load a pending summary node by id. */
   async getNode(nodeId: string): Promise<PendingSummaryNodeRecord | null> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT node_id,
                 batch_id,
@@ -468,13 +468,13 @@ export class PendingSummaryStore {
          FROM pending_summary_nodes
          WHERE node_id = ?`,
       )
-      .get(nodeId) as PendingSummaryNodeRow | undefined;
+      .get(nodeId)) as PendingSummaryNodeRow | undefined;
     return row ? toNodeRecord(row) : null;
   }
 
   /** List pending nodes in batch order. */
   async getNodesByBatch(batchId: string): Promise<PendingSummaryNodeRecord[]> {
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT node_id,
                 batch_id,
@@ -504,7 +504,7 @@ export class PendingSummaryStore {
          WHERE batch_id = ?
          ORDER BY ordinal_start, depth, node_id`,
       )
-      .all(batchId) as PendingSummaryNodeRow[];
+      .all(batchId)) as PendingSummaryNodeRow[];
     return rows.map(toNodeRecord);
   }
 
@@ -529,26 +529,26 @@ export class PendingSummaryStore {
 
     for (let index = 0; index < messages.length; index++) {
       const message = messages[index];
-      stmt.run(
+      (await stmt.run(
         nodeId,
         message.messageId,
         index,
         message.transcriptEntryId ?? null,
         message.identityHash ?? null,
-      );
+      ));
     }
   }
 
   /** Read the raw message coverage for a pending leaf node. */
   async getNodeMessages(nodeId: string): Promise<PendingSummaryNodeMessageRecord[]> {
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT message_id, transcript_entry_id, identity_hash
          FROM pending_summary_node_messages
          WHERE node_id = ?
          ORDER BY ordinal`,
       )
-      .all(nodeId) as PendingSummaryNodeMessageRow[];
+      .all(nodeId)) as PendingSummaryNodeMessageRow[];
     return rows.map(toNodeMessageRecord);
   }
 
@@ -571,20 +571,20 @@ export class PendingSummaryStore {
 
     for (let index = 0; index < children.length; index++) {
       const child = children[index];
-      stmt.run(nodeId, index, child.childNodeId ?? null, child.childSummaryId ?? null);
+      (await stmt.run(nodeId, index, child.childNodeId ?? null, child.childSummaryId ?? null));
     }
   }
 
   /** Read the ordered children for a pending condensed node. */
   async getNodeChildren(nodeId: string): Promise<PendingSummaryNodeChildRecord[]> {
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT child_node_id, child_summary_id
          FROM pending_summary_node_children
          WHERE node_id = ?
          ORDER BY ordinal`,
       )
-      .all(nodeId) as PendingSummaryNodeChildRow[];
+      .all(nodeId)) as PendingSummaryNodeChildRow[];
     return rows.map(toNodeChildRecord);
   }
 
@@ -597,7 +597,7 @@ export class PendingSummaryStore {
   }): Promise<PendingSummaryNodeRecord | null> {
     return this.withTransaction(async () => {
       const nowIso = (input.now ?? new Date()).toISOString();
-      const row = this.db
+      const row = (await this.db
         .prepare(
           `SELECT pending_summary_nodes.node_id,
                   pending_summary_nodes.batch_id,
@@ -653,13 +653,13 @@ export class PendingSummaryStore {
                     pending_summary_nodes.node_id
            LIMIT 1`,
         )
-        .get(input.conversationId, nowIso, nowIso) as PendingSummaryNodeRow | undefined;
+        .get(input.conversationId, nowIso, nowIso)) as PendingSummaryNodeRow | undefined;
 
       if (!row) {
         return null;
       }
 
-      const result = this.db
+      const result = (await this.db
         .prepare(
           `UPDATE pending_summary_nodes
            SET status = 'running',
@@ -691,7 +691,7 @@ export class PendingSummaryStore {
                  AND child.status NOT IN ('ready', 'promoted')
              )`,
         )
-        .run(input.leaseOwner, input.leaseExpiresAt.toISOString(), row.node_id, nowIso, nowIso);
+        .run(input.leaseOwner, input.leaseExpiresAt.toISOString(), row.node_id, nowIso, nowIso));
       if (Number(result.changes ?? 0) === 0) {
         return null;
       }
@@ -710,7 +710,7 @@ export class PendingSummaryStore {
     model?: string;
     readyAt?: Date;
   }): Promise<boolean> {
-    const result = this.db
+    const result = (await this.db
       .prepare(
         `UPDATE pending_summary_nodes
          SET status = 'ready',
@@ -737,7 +737,7 @@ export class PendingSummaryStore {
         input.nodeId,
         input.leaseOwner,
         input.leaseExpiresAt.toISOString(),
-      );
+      ));
     return Number(result.changes ?? 0) > 0;
   }
 
@@ -753,7 +753,7 @@ export class PendingSummaryStore {
     leaseOwner: string;
     leaseExpiresAt: Date;
   }): Promise<boolean> {
-    const result = this.db
+    const result = (await this.db
       .prepare(
         `UPDATE pending_summary_nodes
          SET status = 'planned',
@@ -765,7 +765,7 @@ export class PendingSummaryStore {
            AND lease_owner = ?
            AND lease_expires_at = ?`,
       )
-      .run(input.nodeId, input.leaseOwner, input.leaseExpiresAt.toISOString());
+      .run(input.nodeId, input.leaseOwner, input.leaseExpiresAt.toISOString()));
     return Number(result.changes ?? 0) > 0;
   }
 
@@ -791,7 +791,7 @@ export class PendingSummaryStore {
       const nextAttemptAfter = new Date(
         (input.now ?? new Date()).getTime() + retryBackoffMs(nextRetryCount),
       );
-      const result = this.db
+      const result = (await this.db
         .prepare(
           `UPDATE pending_summary_nodes
            SET status = 'failed',
@@ -813,7 +813,7 @@ export class PendingSummaryStore {
           input.nodeId,
           input.leaseOwner,
           input.leaseExpiresAt.toISOString(),
-        );
+        ));
       return Number(result.changes ?? 0) > 0;
     });
   }
@@ -827,7 +827,7 @@ export class PendingSummaryStore {
    * referenced as children by a live parent are kept.
    */
   async pruneSupersededNodes(batchId: string): Promise<number> {
-    const result = this.db
+    const result = (await this.db
       .prepare(
         `DELETE FROM pending_summary_nodes
          WHERE batch_id = ?
@@ -851,7 +851,7 @@ export class PendingSummaryStore {
                AND parent.status NOT IN ('stale', 'failed')
            )`,
       )
-      .run(batchId);
+      .run(batchId));
     return Number(result.changes ?? 0);
   }
 
@@ -863,7 +863,7 @@ export class PendingSummaryStore {
    * lineage, per AN 0002.
    */
   async clearPromotedPayloads(batchId: string): Promise<number> {
-    const result = this.db
+    const result = (await this.db
       .prepare(
         `UPDATE pending_summary_nodes
          SET content = NULL,
@@ -872,7 +872,7 @@ export class PendingSummaryStore {
            AND status = 'promoted'
            AND content IS NOT NULL`,
       )
-      .run(batchId);
+      .run(batchId));
     return Number(result.changes ?? 0);
   }
 
@@ -887,14 +887,14 @@ export class PendingSummaryStore {
     // Batch timestamps are written with datetime('now') ("YYYY-MM-DD HH:MM:SS"),
     // so the cutoff must use the same format to compare lexicographically.
     const cutoff = input.olderThan.toISOString().replace("T", " ").slice(0, 19);
-    const result = this.db
+    const result = (await this.db
       .prepare(
         `DELETE FROM pending_compaction_batches
          WHERE conversation_id = ?
            AND status IN ('stale', 'failed', 'published')
            AND updated_at <= ?`,
       )
-      .run(input.conversationId, cutoff);
+      .run(input.conversationId, cutoff));
     return Number(result.changes ?? 0);
   }
 
@@ -905,12 +905,12 @@ export class PendingSummaryStore {
     ordinalEnd: number;
     sourceContextHash: string | null;
   }): Promise<void> {
-    this.db.prepare(
+    (await this.db.prepare(
       `UPDATE pending_summary_nodes
        SET active_ordinal_start = ?, active_ordinal_end = ?, source_context_hash = ?,
            updated_at = datetime('now')
        WHERE node_id = ?`,
-    ).run(input.ordinalStart, input.ordinalEnd, input.sourceContextHash, input.nodeId);
+    ).run(input.ordinalStart, input.ordinalEnd, input.sourceContextHash, input.nodeId));
   }
 
   /** Record the canonical summary id created from a pending node. */
@@ -919,7 +919,7 @@ export class PendingSummaryStore {
     canonicalSummaryId: string;
     promotedAt?: Date;
   }): Promise<void> {
-    this.db
+    (await this.db
       .prepare(
         `UPDATE pending_summary_nodes
          SET status = 'promoted',
@@ -931,6 +931,6 @@ export class PendingSummaryStore {
              updated_at = datetime('now')
          WHERE node_id = ?`,
       )
-      .run(input.canonicalSummaryId, nullableDateToIso(input.promotedAt), input.nodeId);
+      .run(input.canonicalSummaryId, nullableDateToIso(input.promotedAt), input.nodeId));
   }
 }

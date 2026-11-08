@@ -4,7 +4,7 @@ import { attachTranscriptEntryMeta } from "../src/transcript.js";
 import type { AgentMessage, CompactResult } from "../src/openclaw-bridge.js";
 import type { CompactionEngine } from "../src/compaction.js";
 
-afterEach(() => { cleanupEngineTestState(); vi.useRealTimers(); });
+afterEach(async () => { (await cleanupEngineTestState()); vi.useRealTimers(); });
 
 const sessionId = "maintenance-debt";
 const sessionKey = `agent:main:${sessionId}`;
@@ -28,7 +28,7 @@ async function outcomeFixture(result: PendingResult, withDebt = true) {
   };
   const execute = vi.spyOn(internal, "executePendingCompactionCore").mockResolvedValue(result);
   return { engine, store, conversationId, internal, execute,
-    read: () => store.getConversationCompactionMaintenance(conversationId) };
+    read: async () => store.getConversationCompactionMaintenance(conversationId) };
 }
 
 describe("public compaction debt transitions", () => {

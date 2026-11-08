@@ -1,4 +1,4 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { StorageDatabase as DatabaseSync } from "../db/storage.js";
 
 /** Replay identity observed on one transcript user entry. */
 export type TranscriptUserReplayKey = {
@@ -25,7 +25,7 @@ export class UserReplayKeyStore {
   constructor(private readonly db: DatabaseSync) {}
 
   /** Insert or overwrite the observed replay identity of transcript entries. */
-  record(conversationId: number, keys: Iterable<TranscriptUserReplayKey>): void {
+  async record(conversationId: number, keys: Iterable<TranscriptUserReplayKey>): Promise<void> {
     const statement = this.db.prepare(
       `INSERT INTO transcript_user_replay_keys (
          conversation_id, transcript_entry_id, idempotency_key, entry_signature
@@ -34,17 +34,17 @@ export class UserReplayKeyStore {
          idempotency_key = excluded.idempotency_key,
          entry_signature = excluded.entry_signature,
          updated_at = datetime('now')
-       WHERE idempotency_key IS NOT excluded.idempotency_key
-          OR entry_signature IS NOT excluded.entry_signature`,
+       WHERE transcript_user_replay_keys.idempotency_key IS NOT excluded.idempotency_key
+          OR transcript_user_replay_keys.entry_signature IS NOT excluded.entry_signature`,
     );
     for (const key of keys) {
-      statement.run(conversationId, key.entryId, key.idempotencyKey, key.signature);
+      (await statement.run(conversationId, key.entryId, key.idempotencyKey, key.signature));
     }
   }
 
   /** Replay-key state for every raw user context item that carries a transcript entry id. */
-  listRawUserContextKeys(conversationId: number): RawUserReplayKeyState[] {
-    const rows = this.db
+  async listRawUserContextKeys(conversationId: number): Promise<RawUserReplayKeyState[]> {
+    const rows = (await this.db
       .prepare(
         `SELECT m.transcript_entry_id AS entry_id,
                 k.idempotency_key AS idempotency_key,
@@ -59,7 +59,7 @@ export class UserReplayKeyStore {
            AND m.role = 'user'
            AND m.transcript_entry_id IS NOT NULL`,
       )
-      .all(conversationId) as Array<{
+      .all(conversationId)) as Array<{
       entry_id: string;
       idempotency_key: string | null;
       entry_signature: string | null;

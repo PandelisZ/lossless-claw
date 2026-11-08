@@ -1873,11 +1873,11 @@ describe("lcm command", () => {
       prevMessageId: before!.messageId,
       nextMessageId: after!.messageId,
     });
-    new TranscriptGapStore(fixture.db).record(
+    (await new TranscriptGapStore(fixture.db).record(
       conversation.conversationId,
       [gap(10, 280), gap(400, 7)],
       "legacy-migration",
-    );
+    ));
 
     const status = await fixture.command.handler(createCommandContext("status", { sessionKey }));
     expect(status.text).toContain("transcript gaps: 2 gap(s) in 1 conversation(s) · 287 unstored entries · largest 280");
