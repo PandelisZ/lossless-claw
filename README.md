@@ -647,3 +647,9 @@ help bringing agents into your own systems, we'd like to hear from you:
 
 Bug reports and feature requests belong in
 [GitHub Issues](https://github.com/Martian-Engineering/lossless-claw/issues).
+
+### Experimental remote context storage
+
+This fork includes an explicitly selected Turbopuffer context-operation backend.
+SQLite remains the default; full gateway activation is not implemented. See the
+[implementation, supported scope and paired PostgreSQL benchmark](docs/experiments/turbopuffer/README.md).
