@@ -70,6 +70,26 @@ const adapter = await import(
     path.join(path.resolve(values.postgres), "upstream-adapter.mjs"),
   ).href
 );
+const nativeProvenance = JSON.parse(
+  await readFile(
+    path.join(path.resolve(values.postgres), ".generated/provenance.json"),
+    "utf8",
+  ),
+);
+execFileSync(
+  "git",
+  [
+    "diff",
+    "--exit-code",
+    nativeProvenance.commit,
+    "--",
+    "src/assembler.ts",
+    "src/compaction.ts",
+    "src/store",
+    "src/db",
+  ],
+  { stdio: "pipe" },
+);
 if (
   process.env.PGHOST !== "127.0.0.1" ||
   process.env.PGDATABASE !== "lcm_fork_comparison"
@@ -83,7 +103,8 @@ const stores = [],
 const evidence = {
   recordedAt: new Date().toISOString(),
   fixtureSha256: manifest.sha256,
-  sourceCommit: fixture.upstreamCommit,
+  fixtureSourceCommit: fixture.upstreamCommit,
+  nativeSourceCommit: nativeProvenance.commit,
   forkBaseCommit: execFileSync("git", ["rev-parse", "HEAD"], {
     encoding: "utf8",
   }).trim(),

@@ -116,6 +116,39 @@ const config = {
 };
 
 describe("experimental remote canonical context storage", () => {
+  it("returns the committed winner's result to concurrent callers sharing one token", async () => {
+    const { store, baseline } = await setup();
+    try {
+      let arrived = 0;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const results = await Promise.all(
+        ["first-result", "second-result"].map((nonce) =>
+          store.mutate("shared-token", { logicalRequest: "same" }, async () => {
+            if (++arrived === 2) release();
+            await gate;
+            return {
+              nonce,
+              createdAt: new Date(nonce === "first-result" ? 0 : 1000),
+            };
+          }),
+        ),
+      );
+      expect(results[0]).toEqual(results[1]);
+      const repeated = await store.mutate(
+        "shared-token",
+        { logicalRequest: "same" },
+        async () => {
+          throw new Error("must not repeat");
+        },
+      );
+      expect(repeated).toEqual(results[0]);
+    } finally {
+      baseline.db.close();
+    }
+  });
   it("rejects foreign auxiliary rows and unsupported owner links before publication", async () => {
     const baseline = await fixture();
     try {

@@ -266,12 +266,12 @@ export class TurbopufferContextStorage {
     }
     return new ContextOperation(local, head, this.conversationId);
   }
-  async #publish(
+  async #publish<T>(
     operation: ContextOperation,
     token: string,
     digest: string,
-    result: unknown,
-  ) {
+    result: T,
+  ): Promise<T> {
     const exported = tables(operation.local.db);
     const documents: Document[] = [];
     let count = 0,
@@ -344,7 +344,8 @@ export class TurbopufferContextStorage {
       });
     } catch {
       const current = await this.head();
-      if (current.manifest.receipts[token]?.digest === digest) return;
+      if (current.manifest.receipts[token]?.digest === digest)
+        return unpack(current.manifest.receipts[token].result) as T;
       if (current.revision === operation.head.revision)
         throw new UnknownCommit(
           "Commit may still be in flight; reconcile before retry",
@@ -355,7 +356,9 @@ export class TurbopufferContextStorage {
       const current = await this.head();
       if (current.manifest.receipts[token]?.digest !== digest)
         throw new StorageConflict("Another conversation writer committed");
+      return unpack(current.manifest.receipts[token].result) as T;
     }
+    return result;
   }
   async mutate<T>(
     token: string,
@@ -376,8 +379,7 @@ export class TurbopufferContextStorage {
         return unpack(receipt.result) as T;
       }
       const result = await run(operation);
-      await this.#publish(operation, token, digest, result);
-      return result;
+      return await this.#publish(operation, token, digest, result);
     } finally {
       operation.close();
     }

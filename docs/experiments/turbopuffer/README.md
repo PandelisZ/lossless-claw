@@ -110,6 +110,37 @@ batched PostgreSQL and this fork. Output SHA-256:
 | PostgreSQL batched leaf compaction |   3 |  26.93 |      30.30 |                      11 SQL |
 | Turbopuffer fork leaf compaction   |   3 | 705.88 |     730.02 |                      4 HTTP |
 
+### Current upstream main and the actual PostgreSQL fork
+
+The table above preserves the release-pinned measurement. The contribution branch
+is also rebased onto upstream `main` at
+`51c3c90bfe82fa649e4895dd1a2c4874b5e28f76`. A fresh paired qualification uses
+that **same native assembler/compactor/store source for all backends**, and the
+actual PostgreSQL fork branch from
+[fork PR #1](https://github.com/PandelisZ/lossless-claw/pull/1), commit
+`1eebd7e273716799c6ffbbdf78bb1dd5b913f1b0`. The harness verifies native source
+equality before running. The original exported fixture hash remains unchanged;
+its source metadata still identifies the v1.2.0 release export. Data and native
+algorithm provenance are recorded separately rather than conflated.
+
+| Current-main full operation        |   n | p50 ms | p95/max ms | Network calls |
+| ---------------------------------- | --: | -----: | ---------: | ------------: |
+| SQLite assembly                    |   5 |   4.96 |       7.14 |             0 |
+| PostgreSQL unbatched assembly      |   5 |  39.66 |      56.33 |       231 SQL |
+| PostgreSQL batched assembly        |   5 |   8.88 |      11.21 |         1 SQL |
+| Turbopuffer fork assembly          |   5 | 241.38 |     257.28 |        2 HTTP |
+| PostgreSQL FTS                     |   5 |   1.23 |       3.01 |         1 SQL |
+| Turbopuffer + projected native FTS |   5 | 223.81 |     227.64 |        2 HTTP |
+| PostgreSQL batched leaf compaction |   3 |  38.15 |      44.87 |        11 SQL |
+| Turbopuffer leaf compaction        |   3 | 713.89 |     739.14 |        4 HTTP |
+
+[Current-main raw evidence](evidence/current-main-comparison.json) retains exact
+implementation/source hashes. Initial assembly has the same byte-for-byte output
+hash as the release-pinned run; normalized post-compaction assembly also matches.
+Both runs' namespace cleanup succeeded, and their task-owned PostgreSQL containers
+were removed. This compares the real batched PG fork, not the earlier JSONB mirror
+or its statistics-sensitive slow query.
+
 The compaction callback is deterministic **only at the inference boundary**;
 summary selection, graph construction, persistence and context updates use real
 upstream code and real backend I/O. Three independent conversations are compacted
@@ -181,3 +212,24 @@ review incrementally in the fork. PostgreSQL batching is materially better than
 its unbatched baseline in this local experiment; the remote Turbopuffer backend
 remains viable but much slower in this topology. No production readiness or
 deployment follows from either result.
+
+## Qualification status
+
+The release-pinned full upstream suite passed 134 files / 2,128 tests. A subsequent
+broad rerun after import hardening had two timeout-only failures in unchanged
+engine tests (5s test / 10s cleanup hook); that attempt is not called green. Both
+failed files passed when rerun serially on the rebased branch (105 tests including
+the storage tests), and the focused upstream storage/assembly/compaction selection
+passed 156 tests. The final storage suite additionally tests concurrent callers
+sharing one operation token: both must receive the **committed winner's** result,
+not their different tentative results. Unknown responses never authorize blind
+retries. The final rebased full suite passes **136 files / 2,150 tests** with one
+worker. Typechecking, all build targets, and package dry-run inclusion of the
+experimental bundle also pass; these are separate checks.
+
+The same-token result bug was found and fixed during qualification: a losing
+caller previously recognized the winning receipt but returned its own tentative
+result. A dedicated real-provider regression in `bench/receipt-race.mjs` proves
+matching replies and stable replay, with an independently cleaned synthetic
+namespace. The historical paired timing artifacts identify the exact measured
+source revisions; this later reconciliation fix does not silently replace them.
