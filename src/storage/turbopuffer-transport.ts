@@ -13,9 +13,10 @@ export type Write = {
   patch_rows?: Partial<Document>[];
   patch_condition?: unknown;
 };
+export type WriteResult = { upserted: number; patched: number };
 export interface DocumentTransport {
   read(ids: string[]): Promise<Document[]>;
-  write(body: Write): Promise<number>;
+  write(body: Write): Promise<WriteResult>;
 }
 export type RequestMetric = {
   method: string;
@@ -101,7 +102,7 @@ export class TurbopufferTransport implements DocumentTransport {
     }
     return result;
   }
-  async write(body: Write): Promise<number> {
+  async write(body: Write): Promise<WriteResult> {
     const response = await this.request("POST", "", {
       ...body,
       schema: {
@@ -112,6 +113,16 @@ export class TurbopufferTransport implements DocumentTransport {
         commit: "string",
       },
     });
-    return response.rows_affected;
+    // Aggregate rows_affected includes losing immutable inserts. Only the
+    // separately reported root patch count establishes CAS success.
+    if (
+      (body.patch_rows && !Number.isSafeInteger(response.rows_patched)) ||
+      (body.upsert_rows && !Number.isSafeInteger(response.rows_upserted))
+    )
+      throw new Error("Turbopuffer write counts missing; reconcile outcome");
+    return {
+      upserted: response.rows_upserted ?? 0,
+      patched: response.rows_patched ?? 0,
+    };
   }
 }

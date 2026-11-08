@@ -85,7 +85,9 @@ function tables(db: DatabaseSync): ConversationTables {
       .map((column) => identifier(String(column.name)));
     result[name] = db
       .prepare(
-        `SELECT * FROM ${identifier(name)}${keys.length ? ` ORDER BY ${keys.join(",")}` : ""}`,
+        `SELECT * FROM ${identifier(name)}${
+          keys.length ? ` ORDER BY ${keys.join(",")}` : ""
+        }`,
       )
       .all() as Row[];
   }
@@ -96,11 +98,19 @@ function hydrate(data: ConversationTables): Session {
   try {
     target.db.exec("PRAGMA foreign_keys=OFF; BEGIN");
     for (const [name, rows] of Object.entries(data)) {
+      const inserts = new Map<string, ReturnType<DatabaseSync["prepare"]>>();
       for (const row of rows) {
         const columns = Object.keys(row);
-        const insert = target.db.prepare(
-          `INSERT INTO ${identifier(name)} (${columns.map(identifier).join(",")}) VALUES (${columns.map(() => "?").join(",")})`,
-        );
+        const key = columns.join(",");
+        let insert = inserts.get(key);
+        if (!insert) {
+          insert = target.db.prepare(
+            `INSERT INTO ${identifier(name)} (${columns
+              .map(identifier)
+              .join(",")}) VALUES (${columns.map(() => "?").join(",")})`,
+          );
+          inserts.set(key, insert);
+        }
         insert.run(...columns.map((column) => row[column]));
       }
     }
@@ -162,6 +172,9 @@ export class TurbopufferContextStorage {
   #maxRows: number;
   #maxBytes: number;
   #agentId: string;
+  // Per-instance, one bounded manifest of content-addressed blocks. Never cache
+  // the mutable head or share a writable SQLite projection between operations.
+  #blocks = new Map<string, Readonly<Document>>();
   constructor(options: TurbopufferStorageOptions) {
     if (
       !options.organizationId ||
@@ -174,7 +187,10 @@ export class TurbopufferContextStorage {
       );
     if (!/^[A-Za-z0-9_.-]{1,50}$/.test(options.namespacePrefix))
       throw new Error("Invalid namespace prefix");
-    this.namespace = `${options.namespacePrefix}-${hash([options.organizationId, options.agentId]).slice(0, 24)}`;
+    this.namespace = `${options.namespacePrefix}-${hash([
+      options.organizationId,
+      options.agentId,
+    ]).slice(0, 24)}`;
     this.conversationId = options.conversationId;
     this.#agentId = options.agentId;
     this.#root = `h:${hash(options.conversationId)}`;
@@ -234,7 +250,14 @@ export class TurbopufferContextStorage {
     const head = await this.head();
     if (head.manifest.blocks.length > 512)
       throw new Error("Manifest block limit exceeded");
-    const blocks = await this.transport.read(head.manifest.blocks);
+    const previous = this.#blocks;
+    const missing = head.manifest.blocks.filter((id) => !previous.has(id));
+    const fetched = missing.length ? await this.transport.read(missing) : [];
+    const cached = head.manifest.blocks.flatMap((id) => {
+      const row = previous.get(id);
+      return row ? [row] : [];
+    });
+    const blocks = [...cached, ...fetched];
     if (blocks.length !== head.manifest.blocks.length)
       throw new Error("Committed block missing");
     const data: ConversationTables = {};
@@ -264,6 +287,11 @@ export class TurbopufferContextStorage {
       local.db.close();
       throw new Error("Committed conversation missing");
     }
+    // Replace only after complete validation and hydration. Concurrent snapshots
+    // may install different manifests; IDs, not a cached revision, decide reuse.
+    this.#blocks = new Map(
+      blocks.map((row) => [row.id, Object.freeze({ ...row })]),
+    );
     return new ContextOperation(local, head, this.conversationId);
   }
   async #publish<T>(
@@ -311,21 +339,21 @@ export class TurbopufferContextStorage {
     const payload = JSON.stringify(manifest);
     const commit = `c:${hash([this.conversationId, manifest])}`;
     const old = new Set(operation.head.manifest.blocks);
-    await this.transport.write({
-      upsert_rows: [
-        ...documents.filter((row) => !old.has(row.id)),
-        {
-          id: commit,
-          kind: "commit",
-          conversation: String(this.conversationId),
-          payload,
-        },
-      ],
-      upsert_condition: ["id", "Eq", null],
-    });
     let affected: number;
     try {
-      affected = await this.transport.write({
+      // The batch is atomic within this namespace. A losing root CAS can still
+      // insert immutable records, but readers follow only the committed root.
+      const written = await this.transport.write({
+        upsert_rows: [
+          ...documents.filter((row) => !old.has(row.id)),
+          {
+            id: commit,
+            kind: "commit",
+            conversation: String(this.conversationId),
+            payload,
+          },
+        ],
+        upsert_condition: ["id", "Eq", null],
         patch_rows: [
           {
             id: this.#root,
@@ -342,6 +370,7 @@ export class TurbopufferContextStorage {
           ],
         ],
       });
+      affected = written.patched;
     } catch {
       const current = await this.head();
       if (current.manifest.receipts[token]?.digest === digest)
@@ -533,7 +562,8 @@ export function createContextStorage(
 ): TurbopufferContextStorage;
 export function createContextStorage(
   options?:
-    { backend?: "sqlite"; db: DatabaseSync } | TurbopufferStorageOptions,
+    | { backend?: "sqlite"; db: DatabaseSync }
+    | TurbopufferStorageOptions,
 ) {
   if (options?.backend === "turbopuffer")
     return new TurbopufferContextStorage(options);

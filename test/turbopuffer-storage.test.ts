@@ -11,10 +11,11 @@ import {
   UnknownCommit,
   type ConversationTables,
 } from "../src/storage/context-storage.js";
-import type {
-  Document,
-  DocumentTransport,
-  Write,
+import {
+  TurbopufferTransport,
+  type Document,
+  type DocumentTransport,
+  type Write,
 } from "../src/storage/turbopuffer-transport.js";
 
 class MemoryTransport implements DocumentTransport {
@@ -27,29 +28,36 @@ class MemoryTransport implements DocumentTransport {
       return operator.every((part: unknown) => this.matches(row, part));
     return (row as any)[name] === value;
   }
+  reads: string[][] = [];
+  writes: Write[] = [];
   async read(ids: string[]) {
+    this.reads.push([...ids]);
     return ids.flatMap((id) =>
       this.rows.has(id) ? [structuredClone(this.rows.get(id)!)] : [],
     );
   }
   async write(body: Write) {
-    let changed = 0;
+    this.writes.push(structuredClone(body));
+    if (body.patch_rows?.length) this.beforePatch?.();
+    const next = new Map(this.rows);
+    let upserted = 0,
+      patched = 0;
     for (const row of body.upsert_rows ?? []) {
-      if (!this.rows.has(row.id)) {
-        this.rows.set(row.id, structuredClone(row));
-        changed++;
+      if (!next.has(row.id)) {
+        next.set(row.id, structuredClone(row));
+        upserted++;
       }
     }
     for (const patch of body.patch_rows ?? []) {
-      this.beforePatch?.();
-      const current = this.rows.get(patch.id!);
+      const current = next.get(patch.id!);
       if (current && this.matches(current, body.patch_condition)) {
-        this.rows.set(current.id, { ...current, ...patch });
-        changed++;
-        this.afterPatch?.();
+        next.set(current.id, { ...current, ...patch });
+        patched++;
       }
     }
-    return changed;
+    this.rows = next;
+    if (patched) this.afterPatch?.();
+    return { upserted, patched };
   }
 }
 async function fixture() {
@@ -116,6 +124,99 @@ const config = {
 };
 
 describe("experimental remote canonical context storage", () => {
+  it("uses the provider's root patch count even when losing immutable inserts succeed", async () => {
+    const transport = new TurbopufferTransport({
+      apiKey: "synthetic-placeholder",
+      namespace: "synthetic-count-test",
+    });
+    transport.request = async () => ({
+      rows_affected: 4,
+      rows_upserted: 4,
+      rows_patched: 0,
+    });
+    expect(
+      await transport.write({ upsert_rows: [], patch_rows: [{ id: "root" }] }),
+    ).toEqual({ upserted: 4, patched: 0 });
+    transport.request = async () => ({ rows_affected: 4, rows_upserted: 4 });
+    await expect(
+      transport.write({ patch_rows: [{ id: "root" }] }),
+    ).rejects.toThrow("reconcile outcome");
+  });
+
+  it("reuses only verified immutable blocks, checks the strong head every time, and isolates writable projections", async () => {
+    const { store, transport, baseline } = await setup();
+    try {
+      await store.assemble(assembly); // Cold block read.
+      const reads = transport.reads.length;
+      const first = await store.snapshot(),
+        second = await store.snapshot();
+      try {
+        const nonemptyReads = transport.reads
+          .slice(reads)
+          .filter((ids) => ids.length);
+        expect(nonemptyReads).toHaveLength(2);
+        expect(
+          nonemptyReads.every(
+            (ids) => ids.length === 1 && ids[0].startsWith("h:"),
+          ),
+        ).toBe(true);
+        first.local.db.exec("UPDATE messages SET content='tentative only'");
+        expect(await second.local.conversations.getMessageCount(1)).toBe(16);
+        expect(
+          (await second.assemble(assembly)).messages.some((m) =>
+            JSON.stringify(m).includes("tentative only"),
+          ),
+        ).toBe(false);
+      } finally {
+        first.close();
+        second.close();
+      }
+      const writer = new TurbopufferContextStorage({
+        backend: "turbopuffer",
+        namespacePrefix: "synthetic-test",
+        organizationId: "org1",
+        agentId: "agent1",
+        conversationId: 1,
+        transport,
+      });
+      await writer.appendTurn("new-head", [
+        { role: "user", content: "fresh-canary", tokenCount: 3 },
+      ]);
+      expect(
+        (await store.assemble(assembly)).messages.some((m) =>
+          JSON.stringify(m).includes("fresh-canary"),
+        ),
+      ).toBe(true);
+      const lastWrite = transport.writes.at(-1)!;
+      expect(lastWrite.patch_rows).toHaveLength(1);
+      expect(lastWrite.upsert_rows!.some((row) => row.kind === "block")).toBe(
+        true,
+      );
+      expect(lastWrite.upsert_rows!.some((row) => row.kind === "commit")).toBe(
+        true,
+      );
+    } finally {
+      baseline.db.close();
+    }
+  });
+  it("leaves no published state when the atomic batch is rejected before commit", async () => {
+    const { store, transport, baseline } = await setup();
+    try {
+      const before = structuredClone([...transport.rows]);
+      transport.beforePatch = () => {
+        throw new Error("crash before atomic write");
+      };
+      await expect(
+        store.appendTurn("not-committed", [
+          { role: "user", content: "unreachable", tokenCount: 1 },
+        ]),
+      ).rejects.toBeInstanceOf(UnknownCommit);
+      expect([...transport.rows]).toEqual(before);
+    } finally {
+      baseline.db.close();
+    }
+  });
+
   it("returns the committed winner's result to concurrent callers sharing one token", async () => {
     const { store, baseline } = await setup();
     try {
@@ -330,7 +431,17 @@ describe("experimental remote canonical context storage", () => {
       });
       await expect(limited.snapshot()).rejects.toThrow("limit");
       transport.rows.get(before.manifest.blocks[0])!.payload += " ";
-      await expect(store.snapshot()).rejects.toThrow("hash");
+      // Valid cached immutable bytes remain usable. A fresh client must detect
+      // an out-of-protocol overwrite at the provider rather than serving it.
+      const cold = new TurbopufferContextStorage({
+        backend: "turbopuffer",
+        namespacePrefix: "synthetic-test",
+        organizationId: "org1",
+        agentId: "agent1",
+        conversationId: 1,
+        transport,
+      });
+      await expect(cold.snapshot()).rejects.toThrow("hash");
       const other = new TurbopufferContextStorage({
         backend: "turbopuffer",
         namespacePrefix: "other-test",

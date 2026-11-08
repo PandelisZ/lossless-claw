@@ -118,6 +118,7 @@ const evidence = {
       "Actual remote Turbopuffer vs local Docker PG: not a same-region network comparison.",
     "All assembly samples include remote reads, projection construction/migrations/FTS rebuild, exact upstream assembler and projection disposal.",
     "Only deterministic fake inference at the actual upstream summary boundary. Compaction n=3, so p95=max.",
+    "Cold Turbopuffer assembly creates a fresh client per sample. Warm assembly/search/compaction prime verified immutable blocks outside measured samples, but every operation strongly reads the root and creates its own disposable projection. No cached head or shared writable SQLite session.",
     "Turbopuffer is canonical. Its SQLite :memory: projection is disposable; no persistent local database or PostgreSQL underneath it.",
   ],
 };
@@ -148,12 +149,12 @@ function subset(org, cid) {
           r.conversation_id != null
             ? r.conversation_id === cid
             : r.message_id != null
-              ? mids.has(r.message_id)
-              : r.summary_id != null
-                ? sids.has(r.summary_id)
-                : r.session_id != null
-                  ? r.session_id === owner.session_id
-                  : false,
+            ? mids.has(r.message_id)
+            : r.summary_id != null
+            ? sids.has(r.summary_id)
+            : r.session_id != null
+            ? r.session_id === owner.session_id
+            : false,
         ),
       ]),
   );
@@ -166,7 +167,9 @@ function baseline(data) {
     for (const row of rows) {
       const cols = Object.keys(row);
       db.prepare(
-        `INSERT INTO "${name}" (${cols.map((c) => `"${c}"`).join(",")}) VALUES(${cols.map(() => "?").join(",")})`,
+        `INSERT INTO "${name}" (${cols
+          .map((c) => `"${c}"`)
+          .join(",")}) VALUES(${cols.map(() => "?").join(",")})`,
       ).run(...cols.map((c) => row[c]));
     }
   db.exec(
@@ -220,7 +223,7 @@ try {
   const base = baseline(subset(fixture.organizations[0], 1));
   const expected = await base.assemble(input);
   evidence.assemblyOutputSha256 = sha(JSON.stringify(expected));
-  for (const cid of [1, 2, 3]) {
+  function createRemote(cid) {
     const store = new TurbopufferContextStorage({
       backend: "turbopuffer",
       namespacePrefix: prefix,
@@ -230,9 +233,14 @@ try {
       apiKey: key,
     });
     stores.push(store);
+    return store;
+  }
+  for (const cid of [1, 2, 3]) {
+    const store = createRemote(cid);
     await store.initialize();
     await store.importTables(subset(fixture.organizations[0], cid));
   }
+  const originals = stores.slice();
   const remote = stores[0];
   await measure(
     "sqlite-full-assembly",
@@ -253,7 +261,17 @@ try {
     expected,
   );
   await measure(
-    "turbopuffer-fork-full-assembly",
+    "turbopuffer-fork-cold-full-assembly",
+    () => createRemote(1).assemble(input),
+    5,
+    expected,
+  );
+  // Prime each original client explicitly. Warm samples still strongly read the
+  // root; only immutable blocks are cached. Cold samples above use fresh clients.
+  for (const store of originals)
+    await store.assemble({ ...input, conversationId: store.conversationId });
+  await measure(
+    "turbopuffer-fork-warm-full-assembly",
     () => remote.assemble(input),
     5,
     expected,
@@ -266,7 +284,7 @@ try {
   };
   await measure("postgres-message-fts", () => pg.searchMessages(fulltext), 5);
   await measure(
-    "turbopuffer-fork-message-fts",
+    "turbopuffer-fork-warm-message-fts",
     () => remote.searchMessages(fulltext),
     5,
   );
@@ -284,9 +302,9 @@ try {
     3,
   );
   await measure(
-    "turbopuffer-fork-leaf-compaction",
+    "turbopuffer-fork-warm-leaf-compaction",
     (i) =>
-      stores[i].compactLeaf("paired-leaf", adapter.compactionConfig, {
+      originals[i].compactLeaf("paired-leaf", adapter.compactionConfig, {
         conversationId: i + 1,
         tokenBudget: 2000,
         force: true,
@@ -295,7 +313,7 @@ try {
     3,
   );
   for (let i = 0; i < 3; i++) {
-    const result = await stores[i].assemble({
+    const result = await originals[i].assemble({
       ...input,
       conversationId: i + 1,
     });
