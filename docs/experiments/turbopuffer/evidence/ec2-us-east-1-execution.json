@@ -1,0 +1,74 @@
+{
+  "recordedAt": "2026-11-08T05:42:25.662603+00:00",
+  "account": "221429122561",
+  "region": "us-east-1",
+  "instance": {
+    "InstanceId": "i-07afe32296b72bc6b",
+    "Type": "t3.large",
+    "AZ": "us-east-1a",
+    "LaunchTime": "2026-11-08T05:37:53+00:00",
+    "State": "running",
+    "ImageId": "ami-0d6dd9e8265d48906",
+    "Volumes": [
+      {
+        "Id": "vol-0724ab0c922a8faef",
+        "DeleteOnTermination": true
+      }
+    ]
+  },
+  "termination": {
+    "state": "terminated",
+    "reason": "User initiated (2026-11-08 05:40:55 GMT)"
+  },
+  "cleanup": {
+    "instanceTerminated": true,
+    "volumesAbsent": true,
+    "securityGroupAbsent": true,
+    "keyPairAbsent": true,
+    "localPrivateKeyRemoved": true,
+    "syntheticNamespaceDeleted": true
+  },
+  "provisionedSecondsUpperBound": 272.662603,
+  "harnessSha256": "10382bdd8fab3f5bce319155e9463ef2012a27468a2c4c26416bf637f8fae6b8",
+  "payloadHashes": {
+    "fork.bundle": "ecd06f8f33ca7af12e1a7e0da6a6c2566246ea76d6aab03ec146187d74ece1fe",
+    "dist/context-storage.js": "7a8e0ce5e8aaeb907436201132508833f65bcd1953146fa536e31dc3fac69af9",
+    "context-storage.mjs": "10382bdd8fab3f5bce319155e9463ef2012a27468a2c4c26416bf637f8fae6b8",
+    "fixture.json": "af724fb7cd2504ac3e593b16090d63179bdd0ee25e3617991e25d8be14f2b5cf",
+    "fixture-manifest.json": "75df2bfe9d9935d4f9512795fb0f5e8f6e868df228004f6e4f9121751dacbfeb",
+    "run.mjs": "9356dbd7e22fd1b28f5f697de7687fdf003f86cb0a7aa8e7e330e1336f400696",
+    "pg/.gitignore": "c6e80c29d60050a4088c876f4e18a69b10c4c09da6ae1ec4ffc17e098b18aa8f",
+    "pg/README.md": "78d8927e6fae5fc47bc522eb81bf9e964a49fca20dcc9383cdbf9e4207cde98d",
+    "pg/RESULTS.md": "732bb652d9acda1ef0faa97a2ecb4be3b2c7ee55fb05bc74b56b92872766fa21",
+    "pg/benchmark.mjs": "f14686c85b2f061facf13333b7bcf85d5772001d53a4e1c12ea4f78789ec4c6e",
+    "pg/database.mjs": "59bf913a114e2da8e4001e5f4223b244ab94f0a92b1f468d47141b93bd07b6a0",
+    "pg/fixture.mjs": "b6b0df25e572e184c699979046de17b323814022386eb52384e307e19a032776",
+    "pg/package-lock.json": "28cf16cd0110dd1bf8685cf018a95262ebc00a4a4704130bdd542668154b0631",
+    "pg/package.json": "dd6ec21e265acf297358bd5b5df6aa1f66b961ce228f1fe542763cfde9fc0910",
+    "pg/pgbouncer.ini": "27bb98527b943f1bd76930e09312eafe14e45ecf093e7c1b2d0c4eff0e1e8fa2",
+    "pg/prepare.mjs": "f811f3b527bb2abf9f6036f11838e344b7b5e84a4a7e836bd0cdf3a5d086ff89",
+    "pg/restart-test.mjs": "a5a33beb41452cc20eef4039c8a88ae817abd506af42fc4331d13e7429802bfc",
+    "pg/run-local.mjs": "780c9e7079f3af1b0f6204132f9c8c4b8313da8bd94969db0e8b1fff96ea08a7",
+    "pg/schema.sql": "b2df9fcd54e5bffa75abbf5ac848e486ad9d9289d1e31cae39f28cf9fd68cfc1",
+    "pg/snapshot-benchmark.mjs": "4472cad3045a0521613156c20069b76ceecf3d87531c54dcad668e1ed49d0e1c",
+    "pg/snapshot.mjs": "b4b1cd0b68f4b45f6652481ccf1f9d69cb56964129ff259f3de028f9c0d92704",
+    "pg/snapshot.test.mjs": "20dd55349d90c6a7619e6561beee37ff82573c5826b30c1b463a6873fe4282c4",
+    "pg/store.mjs": "b8d4e9ebafd41c9e9296a4e221dd51425c08739ec51e6971c7069a9d1162370c",
+    "pg/store.test.mjs": "364ae35079fe24fbf01715bfc417cf89e433172a7c7911c6338541db3923a64e",
+    "pg/transfer.mjs": "68356fd73ef4424856abef7a577a11d272840937b6befcda2a4d7cd85c810c29",
+    "pg/upstream-adapter.mjs": "5ec3b2d6c2374fcc39f5b7b5d57fc19b7d0f6e186b34c1440a8b6bfc04d877f1",
+    "pg/evidence/checks.json": "c80638117420dbb06aacbb24d8906f1b3ba0dadb43e2410241892f35e321070e",
+    "pg/evidence/snapshot-direct.json": "2b370c945ecaeeadb74407d9e0dada1153b59237e99649a17187b82fed604137",
+    "pg/evidence/snapshot-pooler.json": "48868ec38c90424e2dde406c715626d3edb6421da6e63d9ccce22df8f81ff3d2",
+    "pg/.generated/upstream.mjs": "3657ee793c0096ce0a8be321998c1b99a05e8fe6ac3c4287f0ec7b454e280681",
+    "pg/.generated/provenance.json": "33a79e89d5170b5850f531b1ec3492028f80bd2b85c4a3d5c3979b56d5f6729e"
+  },
+  "checks": {
+    "harnessNodeSyntax": true,
+    "realPairedRunCompleted": true,
+    "sameOutputHash": true,
+    "nativeSourceParityGuard": true,
+    "isolationCanaries": true
+  },
+  "scope": "Timing/provenance-only harness flag; backend/native code unchanged from fork 8b9198c. No production services or data touched."
+}

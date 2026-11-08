@@ -1,4 +1,15 @@
-# lossless-claw
+# @pandelis/lossless-claw
+
+**Pandelis fork** of [Martian Engineering's Lossless Claw](https://github.com/Martian-Engineering/lossless-claw), retaining its MIT license and upstream attribution.
+
+This fork adds **opt-in experimental Turbopuffer context storage**. Install this
+fork with `npm install @pandelis/lossless-claw@turbopuffer`; import its programmatic
+API from `@pandelis/lossless-claw/dist/experimental/context-storage.js`.
+See [Turbopuffer setup, supported operations, benchmarks and limits](docs/experiments/turbopuffer/README.md).
+The regular OpenClaw plugin still uses SQLite. The experimental API does not yet
+replace the complete hosted gateway storage lifecycle or provide agent-wide
+multi-conversation recall. Original upstream installation examples below describe
+the upstream package, not this fork's release channel.
 
 Lossless Context Management plugin for [OpenClaw](https://github.com/openclaw/openclaw), based on the [LCM paper](https://papers.voltropy.com/LCM) from [Voltropy](https://x.com/Voltropy). Replaces OpenClaw's built-in sliding-window compaction with a DAG-based summarization system that preserves every message while keeping active context within model token limits.
 
@@ -647,3 +658,9 @@ help bringing agents into your own systems, we'd like to hear from you:
 
 Bug reports and feature requests belong in
 [GitHub Issues](https://github.com/Martian-Engineering/lossless-claw/issues).
+
+### Experimental remote context storage
+
+This fork includes an explicitly selected Turbopuffer context-operation backend.
+SQLite remains the default; full gateway activation is not implemented. See the
+[implementation, supported scope and paired PostgreSQL benchmark](docs/experiments/turbopuffer/README.md).

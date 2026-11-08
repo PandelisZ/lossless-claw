@@ -24,6 +24,11 @@ function classify(version: string) {
 }
 
 describe("release-channel CLI", () => {
+  it("routes the fork prerelease to its npm-only Turbopuffer channel", () => {
+    const result=classify("1.3.0-turbopuffer.0");
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("npm_tag=turbopuffer\nclawhub_tags=\nprerelease=true\n");
+  });
   it("routes stable versions to latest", () => {
     const result = classify("0.13.2");
 
@@ -55,6 +60,7 @@ describe("release-channel CLI", () => {
 
 describe("release ordering CLI", () => {
   it.each([
+    ["1.3.0-turbopuffer.1", "1.3.0-turbopuffer.0"],
     ["0.14.0", "0.13.2"],
     ["0.14.0-beta.1", "0.14.0-beta.0"],
     ["1.0.0-beta.0", "0.99.9-beta.99"],
@@ -66,6 +72,8 @@ describe("release ordering CLI", () => {
   });
 
   it.each([
+    ["1.3.0-turbopuffer.0", "1.3.0-turbopuffer.0"],
+    ["1.3.0-turbopuffer.0", "1.3.0-beta.0"],
     ["0.13.2", "0.13.2"],
     ["0.13.1", "0.13.2"],
     ["0.14.0-beta.0", "0.14.0-beta.0"],

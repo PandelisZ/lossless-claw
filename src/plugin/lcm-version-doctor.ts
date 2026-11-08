@@ -1,8 +1,9 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import packageJson from "../../package.json" with { type: "json" };
 
-const LOSSLESS_PACKAGE_NAME = "@martian-engineering/lossless-claw";
-const LOSSLESS_PACKAGE_SEGMENTS = ["@martian-engineering", "lossless-claw"];
+const LOSSLESS_PACKAGE_NAME = packageJson.name;
+const LOSSLESS_PACKAGE_SEGMENTS = LOSSLESS_PACKAGE_NAME.split("/");
 
 /** A discovered Lossless Claw package copy relevant to the active OpenClaw installation. */
 export type LcmPackageCopy = {

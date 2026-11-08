@@ -57,7 +57,7 @@ import {
 const VISIBLE_COMMAND = "/lossless";
 const HIDDEN_ALIAS = "/lcm";
 const LOSSLESS_PLUGIN_ID = "lossless-claw";
-const LOSSLESS_NPM_PACKAGE = "@martian-engineering/lossless-claw";
+const LOSSLESS_NPM_PACKAGE = packageJson.name;
 const INSTALLED_PLUGIN_INDEX_KEY = "installed-plugin-index";
 const DOCTOR_APPLY_LARGE_TARGET_THRESHOLD = 25;
 const DOCTOR_APPLY_BUDGET_PRESSURE_RATIO = 0.75;
@@ -416,7 +416,7 @@ function detectLcmInstallTrackWarning(params: {
   return null;
 }
 
-/** Format the update-track warning and the command that restores the stable channel. */
+/** Format the update-track warning and the command that restores the configured release channel. */
 function buildInstallTrackWarningSection(warning: LcmInstallTrackWarning): string {
   const impact = warning.kind === "wrong-channel"
     ? "OpenClaw plugin update sync will follow Lossless Claw prereleases instead of stable releases."
@@ -427,7 +427,7 @@ function buildInstallTrackWarningSection(warning: LcmInstallTrackWarning): strin
     buildStatLine("impact", impact),
     buildStatLine(
       "repair",
-      formatCommand(`openclaw plugins update ${LOSSLESS_NPM_PACKAGE}@latest`),
+      formatCommand(`openclaw plugins update ${LOSSLESS_NPM_PACKAGE}@${packageJson.publishConfig.tag || "latest"}`),
     ),
   ]);
 }

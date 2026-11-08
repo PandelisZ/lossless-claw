@@ -3,7 +3,7 @@
   "changelog": [
     "@changesets/changelog-github",
     {
-      "repo": "Martian-Engineering/lossless-claw"
+      "repo": "PandelisZ/lossless-claw"
     }
   ],
   "commit": false,
