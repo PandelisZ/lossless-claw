@@ -9,11 +9,11 @@ Full assembly includes snapshot loading, exact native assembly, diagnostics and 
 
 | Full operation                 | Direct p50/p95 ms | Local PgBouncer p50/p95 ms | SQL trips |
 | ------------------------------ | ----------------- | -------------------------- | --------- |
-| sqlite-full-assembly           | 4.19/6.71         | 3.95/6.28                  | 0         |
-| unbatched-full-assembly        | 33.51/38.04       | 36.00/41.20                | 231       |
-| batched-full-assembly          | 7.15/8.47         | 8.10/8.76                  | 1         |
-| unbatched-full-leaf-compaction | 40.26/52.40       | 57.18/65.04                | 199       |
-| batched-full-leaf-compaction   | 27.75/29.18       | 25.69/29.16                | 11        |
+| sqlite-full-assembly           | 4.08/5.15         | 4.90/6.38                  | 0         |
+| unbatched-full-assembly        | 43.24/50.89       | 62.10/137.58               | 231       |
+| batched-full-assembly          | 7.26/14.84        | 10.09/13.36                | 1         |
+| unbatched-full-leaf-compaction | 40.03/50.73       | 84.21/118.94               | 199       |
+| batched-full-leaf-compaction   | 21.65/21.77       | 41.43/43.49                | 11        |
 
 Compaction uses three separate conversations per mode and deterministic fake inference only at the LLM boundary; p95=max for that small sample. It includes the SQL commit and any snapshot refresh. The extra rows in the JSON add a synthetic 2 ms client timer per query; they do not measure physical RTT or production networking. Output bytes are JSON serialization sizes, not packet captures.
 
