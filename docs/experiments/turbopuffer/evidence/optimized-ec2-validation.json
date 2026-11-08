@@ -1,0 +1,91 @@
+{
+  "sourceCommit": "4e72ee7a53cb47544932f5b676e45a43dd6002d7",
+  "nativeSourceCommit": "51c3c90bfe82fa649e4895dd1a2c4874b5e28f76",
+  "postgresSourceCommit": "1eebd7e273716799c6ffbbdf78bb1dd5b913f1b0",
+  "fixtureSha256": "af724fb7cd2504ac3e593b16090d63179bdd0ee25e3617991e25d8be14f2b5cf",
+  "checks": {
+    "affectedNativeAndStorageTests": {
+      "files": 4,
+      "passed": 133
+    },
+    "finalStorageTests": {
+      "files": 1,
+      "passed": 12
+    },
+    "typecheck": true,
+    "fullBuild": true,
+    "livePairedRun": true,
+    "liveAtomicProtocol": true
+  },
+  "qualificationScope": "Scoped checks for changed storage/transport and native assembler/compactor; historical full 2150-test run is not reattested for this new runtime revision.",
+  "protocolAssertions": {
+    "competingCompactionsOneWinner": true,
+    "freshClientCoherentGraph": true,
+    "losingInsertsAreNotRootSuccess": true,
+    "competingAppendsOneWinner": true,
+    "preBatchCrashNoPublication": true,
+    "lostReplyReconcilesAfterHeadAdvances": true,
+    "freshClientReceiptReplay": true,
+    "sameTokenReturnsCommittedResult": true
+  },
+  "initialProtocolAttempt": {
+    "completed": false,
+    "namespaceDeleted": true,
+    "explanation": "Provider omitted zero rows_patched on losing writes; strict parser reconciled safely, but the instrumentation assertion saw no returned losing count. Fixed by accepting omitted zero only when known counters fully account for rows_affected. No aggregate-only positive acknowledgement is accepted."
+  },
+  "cloudwatch": {
+    "CPUCreditBalance": {
+      "Label": "CPUCreditBalance",
+      "Datapoints": [
+        {
+          "Timestamp": "2026-11-07T21:58:00-08:00",
+          "Average": 2.5896475166666666,
+          "Minimum": 2.5896475166666666,
+          "Maximum": 2.5896475166666666,
+          "Unit": "Count"
+        },
+        {
+          "Timestamp": "2026-11-07T21:53:00-08:00",
+          "Average": 0.0,
+          "Minimum": 0.0,
+          "Maximum": 0.0,
+          "Unit": "Count"
+        }
+      ]
+    },
+    "CPUUtilization": {
+      "Label": "CPUUtilization",
+      "Datapoints": [
+        {
+          "Timestamp": "2026-11-07T21:53:00-08:00",
+          "Average": 7.194227367142032,
+          "Minimum": 0.3413935518252065,
+          "Maximum": 23.12129092485164,
+          "Unit": "Percent"
+        },
+        {
+          "Timestamp": "2026-11-07T21:48:00-08:00",
+          "Average": 19.439823588054907,
+          "Minimum": 0.0306304741965089,
+          "Maximum": 38.84901670191331,
+          "Unit": "Percent"
+        },
+        {
+          "Timestamp": "2026-11-07T21:58:00-08:00",
+          "Average": 9.501332813605007,
+          "Minimum": 0.36668500091671247,
+          "Maximum": 27.645654967539514,
+          "Unit": "Percent"
+        }
+      ]
+    },
+    "credit-specification": {
+      "InstanceCreditSpecifications": [
+        {
+          "InstanceId": "i-040b7cadfd8315f61",
+          "CpuCredits": "unlimited"
+        }
+      ]
+    }
+  }
+}

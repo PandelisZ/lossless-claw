@@ -1,0 +1,82 @@
+{
+  "recordedAt": "2026-11-08T06:06:58.086858+00:00",
+  "account": "221429122561",
+  "region": "us-east-1",
+  "instance": {
+    "InstanceId": "i-040b7cadfd8315f61",
+    "Type": "t3.large",
+    "AZ": "us-east-1a",
+    "LaunchTime": "2026-11-08T05:53:27+00:00",
+    "State": "running",
+    "ImageId": "ami-0d6dd9e8265d48906",
+    "Volumes": [
+      {
+        "Id": "vol-0031be88ed77060c7",
+        "DeleteOnTermination": true
+      }
+    ]
+  },
+  "termination": {
+    "state": "terminated",
+    "reason": "User initiated (2026-11-08 06:03:50 GMT)"
+  },
+  "cleanup": {
+    "instanceTerminated": true,
+    "volumesAbsent": true,
+    "securityGroupAbsent": true,
+    "keyPairAbsent": true,
+    "localPrivateKeyRemoved": true,
+    "syntheticNamespaceDeleted": true
+  },
+  "provisionedSecondsUpperBound": 811.086858,
+  "harnessSha256": "63564e5dc29c2ac0da20651c7f37180d4d2662fc3ff8700eea3cc67f6509b18c",
+  "payloadHashes": {
+    "fork.bundle": "22ea6b3081777387f9d25dae12cf16b246fcdfef070f2cc0906781259f8e4a7f",
+    "dist/context-storage.js": "dc0eb22ec4dfbd6578a3ef5946362c4666a4f09c77b085f8e8a8b512dedc578d",
+    "context-storage.mjs": "a6c2b12650a373639c7b3ce97f66b9ae5111d774740c6b2f4f23fd21ec2a5fba",
+    "fixture.json": "af724fb7cd2504ac3e593b16090d63179bdd0ee25e3617991e25d8be14f2b5cf",
+    "fixture-manifest.json": "75df2bfe9d9935d4f9512795fb0f5e8f6e868df228004f6e4f9121751dacbfeb",
+    "run.mjs": "538bb440341d2e789e1e334539b38f62e0d526ba2c7fbee66107be342bba67f4",
+    "pg/.gitignore": "c6e80c29d60050a4088c876f4e18a69b10c4c09da6ae1ec4ffc17e098b18aa8f",
+    "pg/README.md": "78d8927e6fae5fc47bc522eb81bf9e964a49fca20dcc9383cdbf9e4207cde98d",
+    "pg/RESULTS.md": "732bb652d9acda1ef0faa97a2ecb4be3b2c7ee55fb05bc74b56b92872766fa21",
+    "pg/benchmark.mjs": "f14686c85b2f061facf13333b7bcf85d5772001d53a4e1c12ea4f78789ec4c6e",
+    "pg/database.mjs": "59bf913a114e2da8e4001e5f4223b244ab94f0a92b1f468d47141b93bd07b6a0",
+    "pg/fixture.mjs": "b6b0df25e572e184c699979046de17b323814022386eb52384e307e19a032776",
+    "pg/package-lock.json": "28cf16cd0110dd1bf8685cf018a95262ebc00a4a4704130bdd542668154b0631",
+    "pg/package.json": "dd6ec21e265acf297358bd5b5df6aa1f66b961ce228f1fe542763cfde9fc0910",
+    "pg/pgbouncer.ini": "27bb98527b943f1bd76930e09312eafe14e45ecf093e7c1b2d0c4eff0e1e8fa2",
+    "pg/prepare.mjs": "f811f3b527bb2abf9f6036f11838e344b7b5e84a4a7e836bd0cdf3a5d086ff89",
+    "pg/restart-test.mjs": "a5a33beb41452cc20eef4039c8a88ae817abd506af42fc4331d13e7429802bfc",
+    "pg/run-local.mjs": "780c9e7079f3af1b0f6204132f9c8c4b8313da8bd94969db0e8b1fff96ea08a7",
+    "pg/schema.sql": "b2df9fcd54e5bffa75abbf5ac848e486ad9d9289d1e31cae39f28cf9fd68cfc1",
+    "pg/snapshot-benchmark.mjs": "4472cad3045a0521613156c20069b76ceecf3d87531c54dcad668e1ed49d0e1c",
+    "pg/snapshot.mjs": "b4b1cd0b68f4b45f6652481ccf1f9d69cb56964129ff259f3de028f9c0d92704",
+    "pg/snapshot.test.mjs": "20dd55349d90c6a7619e6561beee37ff82573c5826b30c1b463a6873fe4282c4",
+    "pg/store.mjs": "b8d4e9ebafd41c9e9296a4e221dd51425c08739ec51e6971c7069a9d1162370c",
+    "pg/store.test.mjs": "364ae35079fe24fbf01715bfc417cf89e433172a7c7911c6338541db3923a64e",
+    "pg/transfer.mjs": "68356fd73ef4424856abef7a577a11d272840937b6befcda2a4d7cd85c810c29",
+    "pg/upstream-adapter.mjs": "5ec3b2d6c2374fcc39f5b7b5d57fc19b7d0f6e186b34c1440a8b6bfc04d877f1",
+    "pg/evidence/checks.json": "c80638117420dbb06aacbb24d8906f1b3ba0dadb43e2410241892f35e321070e",
+    "pg/evidence/snapshot-direct.json": "2b370c945ecaeeadb74407d9e0dada1153b59237e99649a17187b82fed604137",
+    "pg/evidence/snapshot-pooler.json": "48868ec38c90424e2dde406c715626d3edb6421da6e63d9ccce22df8f81ff3d2",
+    "pg/.generated/upstream.mjs": "3657ee793c0096ce0a8be321998c1b99a05e8fe6ac3c4287f0ec7b454e280681",
+    "pg/.generated/provenance.json": "33a79e89d5170b5850f531b1ec3492028f80bd2b85c4a3d5c3979b56d5f6729e",
+    "baseline-storage.js": "7a8e0ce5e8aaeb907436201132508833f65bcd1953146fa536e31dc3fac69af9",
+    "baseline-benchmark.mjs": "10382bdd8fab3f5bce319155e9463ef2012a27468a2c4c26416bf637f8fae6b8",
+    "src/storage/context-storage.ts": "e1fa69b291c782d314ec042706cb67bf1cacf0097b609d90c067d968c17c159b",
+    "src/storage/turbopuffer-transport.ts": "339cb61fc5c808f9e88ece48270052de2164694a4c6658ac3ef69d0297472d09",
+    "dist/experimental/context-storage.js": "ac01babb7eaebdfa14661091072ed3f43a84687ff77b24afd4a97c473605d516",
+    "bench/context-storage.mjs": "63564e5dc29c2ac0da20651c7f37180d4d2662fc3ff8700eea3cc67f6509b18c",
+    "bench/atomic-publication.mjs": "b097a42cda6d2f366c07cccec9cab5d5e93912aea127c504bc96541bb5946e0f",
+    "run-final.mjs": "c4e8d6a69de910ff630152beba791298c25bc4ecfc182770b4bd9b2d78fc6d6b"
+  },
+  "checks": {
+    "harnessNodeSyntax": true,
+    "realPairedRunCompleted": true,
+    "sameOutputHash": true,
+    "nativeSourceParityGuard": true,
+    "isolationCanaries": true
+  },
+  "scope": "Optimized canonical Turbopuffer runtime source 4e72ee7 with verified block reuse, query-only read projection and one atomic publication batch. No production services or data touched."
+}

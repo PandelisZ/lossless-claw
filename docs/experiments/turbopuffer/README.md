@@ -36,7 +36,10 @@ const context = await storage.assemble({
 `compactLeaf(stableToken, config, input)` runs the real upstream leaf compactor,
 then publishes its complete graph/context mutation. `searchMessages(input)` uses
 the existing scoped FTS5/regex semantics against the current operation projection.
-Stable operation tokens deduplicate retries, preserve returned Date values, and
+Call `storage.close()` when finished to release its disposable read cache; active
+read leases finish before their projection closes. Closing is not host-generation
+fencing or cancellation of already-running writes. Stable operation tokens
+deduplicate retries, preserve returned Date values, and
 reject different input under the same token. Imports reject foreign auxiliary
 rows and rows without a supported conversation/message/summary owner link;
 unimplemented auxiliary ownership is refused rather than guessed. Explicit `snapshot()` callers must
@@ -57,32 +60,54 @@ parent commit and operation receipts. An immutable copy of every published/stage
 manifest is stored separately. A single root patch, conditional on the observed
 version **and** commit ID, atomically publishes the next complete state.
 
-An operation reads the strong root once and bulk-fetches its immutable blocks.
-It hydrates a new **SQLite `:memory:` read/write projection**, executes upstream
-code locally and closes the projection. This SQLite database is never a durable
-canonical store: deleting it loses no acknowledged conversation data, and a
+Every operation reads the strong root once. Cold operations bulk-fetch and verify
+its immutable blocks. A per-instance cache retains at most one bounded manifest
+of verified immutable blocks. Public snapshots and writes hydrate independent
+**SQLite `:memory:` read/write projections**, reusing prepared inserts per table
+shape. Read operations reuse a committed projection with `PRAGMA query_only=ON`
+only when the freshly read root commit matches; they still execute the native
+assembler/search each time. A changed root replaces the projection; reader leases
+keep an older pinned projection alive until its readers finish. Failed strong
+root reads reject rather than serving stale cached state. This SQLite database is
+never a durable canonical store: deleting it loses no acknowledged conversation data, and a
 fresh operation reconstructs it solely from Turbopuffer. There is no PostgreSQL,
 Redis, Rails outbox, job queue, local database file or durable retry service
 underneath this backend. CPU/memory/projection rebuilding are real costs, included
 in all measurements.
 
-For a write, all new blocks and the immutable manifest are staged first, then one
-CAS updates the root. A losing writer leaves unreachable blocks; readers cannot
-see them through the winning manifest. A lost CAS response is reconciled against
-the current root's operation receipt. An unchanged root without the receipt is
+For a write, new immutable blocks, the immutable manifest and the root CAS share
+**one atomic namespace write batch**. Insert-if-absent applies only to immutable
+IDs; the root patch independently checks its old version and commit. The provider
+[guarantees atomic batches and conditional writes](https://turbopuffer.com/docs/guarantees).
+A losing root patch can still insert unreachable immutable records, which readers
+cannot see through the winning manifest. This is intentional, not a simulated
+multi-document transaction condition. A pre-send crash publishes nothing; a lost
+response after the batch commits is reconciled using the same operation receipts.
+Only the root patch count establishes publication success, not aggregate affected
+rows, which includes losing inserts. The live API omits some zero counters; the
+parser accepts omitted zeroes only if known upsert/patch counts fully account for
+the aggregate, otherwise it reconciles the unknown outcome. An unchanged root
+without the operation receipt is
 `UnknownCommit`, not permission to blindly retry. A changed root without the
 receipt is `StorageConflict`; a caller must reload and intentionally rebuild.
 No inference callback is automatically repeated. Stale observations are fenced;
 retired-host generation/lease authority is not implemented.
 
-The root carries its manifest, reducing an ordinary operation to two network
-round trips for the measured 23-block conversations. With over 128 blocks, bulk
-reads use additional 128-ID batches. Only changed/new blocks are written, and
-unchanged historical blocks remain retained. The current manifest/receipts are
-rewritten on each commit. Search fetches this same pinned state and applies the
+The root carries its manifest. Fresh clients use two read round trips for the
+measured 23-block conversations; unchanged warm reads use one strong root query.
+With over 128 missing blocks, reads use additional 128-ID batches. A warm write
+uses one strong root query and one atomic publication batch; a cold write also
+fetches its missing blocks. Only changed/new blocks are written, and unchanged
+historical blocks remain retained. The block cache trusts the protocol's immutable
+content addresses; a fresh client independently verifies provider payloads. It is
+not a background audit of out-of-protocol provider overwrites or deletions. The
+current manifest/receipts are rewritten on each commit. Search fetches this same pinned state and applies the
 native upstream search algorithms: it is **not a provider BM25 performance claim**.
-It avoids orphan candidate overfetch by searching committed state, at the cost of
-fetching and indexing the complete bounded conversation projection.
+It avoids orphan candidate overfetch by searching committed state. Cold/changed
+roots still require constructing the complete bounded conversation projection;
+unchanged warm reads reuse its in-memory index. Caches are disposable, scoped to
+the explicit organization/agent/conversation instance, and contain no durable
+acknowledged state. There is no process-global or cross-agent cache.
 
 ## Paired benchmark against the PostgreSQL experiment
 
@@ -220,7 +245,8 @@ without treating that failed assertion as a completed qualification.
 
 [Raw evidence](evidence/fork-comparison.json) includes every sample, exact PG Git
 source, compiled fork bundle/source hashes, HTTP bytes/server time/billing,
-round trips and cleanup. The final root was revision2, with 23 blocks and a
+round trips and cleanup. These historical artifacts predate the cache/one-batch
+optimization described below. The final root was revision2, with 23 blocks and a
 2,012-byte manifest, while retaining all 200 messages. Foreign agent/organization
 canaries and out-of-scope conversation reads were rejected. The unique synthetic
 namespace and task-owned PostgreSQL container were removed after collecting
@@ -244,6 +270,104 @@ For the Composal experiment, `--key-helper` points to the already authorized
 audited secret reader. All benchmark namespaces have unique `lcm-fork-exp-`
 prefixes, and only these are explicitly deleted. Ordinary storage operations
 never delete namespaces or historical records.
+
+## Optimization qualification on the same EC2 host
+
+The old backend (`44aa5cd`) was rerun first on one fresh t3.large in `us-east-1a`.
+The final backend (`4e72ee7`) then ran on **that same host**, with the disposable
+PG database recreated from the same immutable fixture between runs. Native source
+`51c3c90`, PG fork `1eebd7e`, Node 26.12.1 and PG 18.6/image digest stayed fixed.
+All earlier evidence remains preserved. No production integration was enabled.
+
+Three changes remove avoidable work: verified content-addressed block reuse,
+prepared inserts per table shape, and a query-only committed read projection.
+Every read still strongly checks the root; a root mismatch rebuilds its projection.
+No assembled output is cached. Mutation projections remain independent. Atomic
+block/manifest/root publication replaces two sequential writes with one batch.
+The normal SQLite backend is unchanged.
+
+| Complete operation                |   n | Old TP p50 ms | Final TP p50 ms | Final TP p95/max ms | PG p50 ms in final run | Final TP HTTP calls |
+| --------------------------------- | --: | ------------: | --------------: | ------------------: | ---------------------: | ------------------: |
+| Fresh-client assembly             |   5 |         83.90 |           85.37 |              120.02 |                  29.30 |                   2 |
+| Unchanged-root warm assembly      |   5 |       83.90\* |           35.47 |               42.14 |                  29.30 |                   1 |
+| Warm native projected message FTS |   5 |       66.69\* |           20.06 |               22.32 |                   4.96 |                   1 |
+| Warm leaf compaction              |   3 |        370.53 |          206.81 |              207.98 |                  59.09 |                   2 |
+
+\*The old implementation had no local read cache and rebuilt/fetched for every
+operation. The final warm samples explicitly prime each client's blocks and
+read projection outside the timed samples. Both paths still run the native
+algorithms and include actual backend I/O. PG assembly remains one SQL call and
+compaction eleven calls. The full initial assembly hash and normalized
+post-compaction equality checks pass again, as do the agent/organization canaries.
+SQLite p50 is 21.14 ms in the final run. Small samples make p95 the observed maximum.
+
+Warm assembly is now about **1.21x PG latency** in the paired final run. This is
+specifically an **unchanged-root** result. A new client remains about 85 ms, and
+another append/compaction changes the root and invalidates the read projection.
+Changed-root reads reuse any matching blocks but still hydrate and fetch missing
+ones; that pattern is not separately timed here. Do not interpret the warm result
+as a per-turn guarantee when every read follows a write. No retry, eventual read,
+background publication or pre-durability acknowledgement was introduced.
+
+Aggregate final-run writes still have 148 ms median provider server time (162.84 ms
+client time, n=9 including initialization/import/publication), while query requests
+have 15 ms median server time (21.35 ms client time, n=41). This bounds further
+write-latency gains from client-only optimizations. These are aggregate distributions,
+not exact compaction phases. The root check still costs one charged query component;
+cache reuse does not remove provider queried-byte minimums. One warm assembly and
+one warm compaction now use one and two request components respectively, versus
+two and four in the old path. Raw billing counters are retained.
+
+Run order/CPU scheduling can affect these small measurements: the baseline run's
+PG assembly/compaction p50 were 26.14/40.80 ms and SQLite 14.64 ms, compared with
+29.30/59.09/21.14 ms in the final run. The t3 instance was in unlimited-credit mode;
+CloudWatch samples are retained. This is not a controlled hardware saturation or
+steady-state tail-latency study. Report within-run PG ratios and cold/warm scope,
+not a universal speedup or production readiness claim.
+
+The canonical document format and schema are unchanged. Rollback to `44aa5cd`
+requires no provider migration or data rewrite: stop the experimental caller,
+reconcile any unknown publication outcome, and reopen with the older backend.
+Its staged-write/root protocol can read these same committed blocks and receipts.
+Disposable caches are discarded. Retained history/orphans are not garbage-collected
+as part of either upgrade or rollback. Hosted gateway migration remains outside
+this prototype's supported scope.
+
+A separate **real API** protocol run verifies competing compactions and appends,
+one winning root despite losing inserts, coherent graph reads from a fresh client,
+a pre-send injected transport failure leaving the root unchanged, a successful
+write with its response lost followed by another writer advancing the head,
+fresh-client receipt replay, and same-token callers receiving the committed result.
+It does not crash Turbopuffer servers or prove arbitrary service-outage recovery.
+Documented provider atomicity, rather than a mock, supplies batch visibility.
+
+The initial protocol instrumentation assertion failed because the live API omitted
+zero `rows_patched` counters on losing requests. Publication failed closed and
+reconciled correctly, but the strict parser did not return those counts to the
+probe. The parser now permits omitted zeroes only when the aggregate is fully
+accounted for by known operation counts; an ambiguous positive aggregate is never
+accepted as a successful root CAS. The corrected live probe passes every assertion.
+The failed attempt and its successful namespace cleanup are retained as evidence.
+
+Evidence:
+
+- [Same-host baseline](evidence/optimized-ec2-baseline.json),
+  [final cold/warm comparison](evidence/optimized-ec2-results.json),
+  [intermediate block-cache measurement](evidence/optimized-ec2-block-cache-intermediate.json).
+- [Final atomic protocol run](evidence/optimized-ec2-protocol.json),
+  [initial counter assertion](evidence/optimized-ec2-initial-counter-check.json).
+- [Host/runtime](evidence/optimized-ec2-host.txt),
+  [final source/bundle hashes](evidence/optimized-ec2-final-hashes.txt),
+  [checks and CPU-credit data](evidence/optimized-ec2-validation.json),
+  [verified resource cleanup](evidence/optimized-ec2-execution.json).
+
+Affected validation passes 133 tests across native assembly/compaction and storage;
+the final storage suite passes 12 tests, including read leases across root changes,
+read-only enforcement, cache shutdown and strong-root failure. Typecheck and all
+build targets pass. The historical full 2,150-test qualification is not silently
+re-attested for this new runtime revision. Reproduce with the same paired harness;
+`bench/atomic-publication.mjs --output <path>` runs the separate live protocol probe
+with explicit experiment opt-in and an API key supplied only in memory.
 
 ## Supported scope and remaining work
 
