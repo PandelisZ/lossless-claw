@@ -27,18 +27,30 @@ export type RequestMetric = {
   responseBytes?: number;
   serverMs?: number;
   billing?: unknown;
+  rowsAffected?: number;
+  rowsUpserted?: number;
+  rowsPatched?: number;
 };
 
 export class TurbopufferTransport implements DocumentTransport {
   readonly metrics: RequestMetric[] = [];
   readonly namespace: string;
+  totalRequests = 0;
+  droppedMetrics = 0;
   #key: string;
   #url: string;
-  constructor(options: { apiKey: string; namespace: string; region?: string }) {
+  #metricsLimit: number;
+  constructor(options: {
+    apiKey: string;
+    namespace: string;
+    region?: string;
+    metricsLimit?: number;
+  }) {
     if (!/^[A-Za-z0-9_.-]{1,128}$/.test(options.namespace))
       throw new Error("Invalid namespace");
     const region = options.region ?? "aws-us-east-1";
     if (!/^[a-z0-9-]+$/.test(region)) throw new Error("Invalid region");
+    this.#metricsLimit = options.metricsLimit ?? Infinity;
     this.namespace = options.namespace;
     this.#key = options.apiKey;
     this.#url = `https://${region}.turbopuffer.com/v2/namespaces/${options.namespace}`;
@@ -46,7 +58,7 @@ export class TurbopufferTransport implements DocumentTransport {
   async request(
     method: string,
     suffix: string,
-    body?: unknown,
+    body?: unknown
   ): Promise<Record<string, any>> {
     const text = body === undefined ? undefined : JSON.stringify(body);
     const metric: RequestMetric = {
@@ -73,6 +85,9 @@ export class TurbopufferTransport implements DocumentTransport {
       const value = JSON.parse(raw);
       metric.serverMs = value.performance?.server_total_ms;
       metric.billing = value.billing;
+      metric.rowsAffected = value.rows_affected;
+      metric.rowsUpserted = value.rows_upserted;
+      metric.rowsPatched = value.rows_patched;
       return value;
     } catch (error) {
       if (
@@ -81,10 +96,15 @@ export class TurbopufferTransport implements DocumentTransport {
       )
         throw error;
       throw new Error(
-        "Turbopuffer request failed; a write outcome may be unknown",
+        "Turbopuffer request failed; a write outcome may be unknown"
       );
     } finally {
       metric.ms = performance.now() - start;
+      this.totalRequests++;
+      if (this.metrics.length >= this.#metricsLimit) {
+        this.metrics.shift();
+        this.droppedMetrics++;
+      }
       this.metrics.push(metric);
     }
   }
@@ -119,7 +139,7 @@ export class TurbopufferTransport implements DocumentTransport {
     const patched = response.rows_patched ?? 0;
     if (
       ![response.rows_affected, upserted, patched].every(
-        (count) => Number.isSafeInteger(count) && count >= 0,
+        (count) => Number.isSafeInteger(count) && count >= 0
       ) ||
       response.rows_affected !== upserted + patched
     )
