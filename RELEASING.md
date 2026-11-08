@@ -1,3 +1,23 @@
+# Pandelis fork releases
+
+Publish this fork only as `@pandelis/lossless-claw`, using the `turbopuffer` npm
+dist-tag for experimental releases. Keep SQLite as the plugin default and state
+that the programmatic Turbopuffer API is not a complete gateway backend.
+
+For this initial fork release, review the fork PR and changeset, run typecheck,
+all builds, the full upstream test suite and TUI tests, then build and inspect the
+npm tarball. Merge the exact reviewed head into this fork's `main`. Pack and
+publish from that merged commit with `npm publish . --access public --tag
+turbopuffer`. Verify the registry integrity/version/gitHead and install the
+published artifact in a disposable consumer. Never publish this fork under the
+upstream npm scope or dispatch the inherited ClawHub publisher.
+
+The inherited workflows below document upstream's process. Fork automated release
+workflows are not used until trusted publishing is configured for this fork and
+scope; the initial release uses the authenticated maintainer npm CLI session.
+
+---
+
 # Releasing
 
 This repo uses Changesets to make npm releases reviewable.

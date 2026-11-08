@@ -367,7 +367,7 @@ describe("lcm command", () => {
             installs: {
               "lossless-claw": {
                 source: "npm",
-                spec: "@martian-engineering/lossless-claw@0.12.0",
+                spec: "@pandelis/lossless-claw@0.12.0",
                 version: "0.12.0",
               },
             },
@@ -378,9 +378,9 @@ describe("lcm command", () => {
 
     expect(result.text).toContain("**⚠️ Update track**");
     expect(result.text).toContain("status: exact-pinned");
-    expect(result.text).toContain("installed spec: `@martian-engineering/lossless-claw@0.12.0`");
+    expect(result.text).toContain("installed spec: `@pandelis/lossless-claw@0.12.0`");
     expect(result.text).toContain("impact: OpenClaw plugin update sync will keep this exact version");
-    expect(result.text).toContain("repair: `openclaw plugins update @martian-engineering/lossless-claw@latest`");
+    expect(result.text).toContain("repair: `openclaw plugins update @pandelis/lossless-claw@turbopuffer`");
   });
 
   it("warns when status sees an exact npm install spec in OpenClaw's installed plugin index", async () => {
@@ -394,7 +394,7 @@ describe("lcm command", () => {
       pluginId: "lossless-claw",
       record: {
         source: "npm",
-        spec: "@martian-engineering/lossless-claw@0.12.0",
+        spec: "@pandelis/lossless-claw@0.12.0",
         version: "0.12.0",
       },
     });
@@ -402,7 +402,7 @@ describe("lcm command", () => {
     const result = await fixture.command.handler(createCommandContext());
 
     expect(result.text).toContain("**⚠️ Update track**");
-    expect(result.text).toContain("installed spec: `@martian-engineering/lossless-claw@0.12.0`");
+    expect(result.text).toContain("installed spec: `@pandelis/lossless-claw@0.12.0`");
   });
 
   it("warns when status sees the prerelease npm channel on the stable 1.0 line", async () => {
@@ -425,7 +425,7 @@ describe("lcm command", () => {
             installs: {
               "lossless-claw": {
                 source: "npm",
-                spec: "@martian-engineering/lossless-claw@beta",
+                spec: "@pandelis/lossless-claw@beta",
                 version: "1.0.0-beta.7",
               },
             },
@@ -436,9 +436,9 @@ describe("lcm command", () => {
 
     expect(result.text).toContain("**⚠️ Update track**");
     expect(result.text).toContain("status: wrong-channel");
-    expect(result.text).toContain("installed spec: `@martian-engineering/lossless-claw@beta`");
+    expect(result.text).toContain("installed spec: `@pandelis/lossless-claw@beta`");
     expect(result.text).toContain("impact: OpenClaw plugin update sync will follow Lossless Claw prereleases");
-    expect(result.text).toContain("repair: `openclaw plugins update @martian-engineering/lossless-claw@latest`");
+    expect(result.text).toContain("repair: `openclaw plugins update @pandelis/lossless-claw@turbopuffer`");
   });
 
   it("does not warn when status sees the moving stable npm install spec", async () => {
@@ -461,7 +461,7 @@ describe("lcm command", () => {
             installs: {
               "lossless-claw": {
                 source: "npm",
-                spec: "@martian-engineering/lossless-claw@latest",
+                spec: "@pandelis/lossless-claw@latest",
                 version: "1.0.0",
               },
             },
@@ -494,7 +494,7 @@ describe("lcm command", () => {
           installs: {
             "lossless-claw": {
               source: "npm",
-              spec: "@martian-engineering/lossless-claw@0.12.0",
+              spec: "@pandelis/lossless-claw@0.12.0",
               version: "0.12.0",
             },
           },
@@ -521,7 +521,7 @@ describe("lcm command", () => {
 
     expect(result.text).toContain("🩺 Lossless Claw Doctor");
     expect(result.text).toContain("**⚠️ Update track**");
-    expect(result.text).toContain("installed spec: `@martian-engineering/lossless-claw@0.12.0`");
+    expect(result.text).toContain("installed spec: `@pandelis/lossless-claw@0.12.0`");
   });
 
   it("warns when doctor finds a generated project copy newer than the active copy", async () => {
@@ -533,7 +533,7 @@ describe("lcm command", () => {
     const liveShadowPath = join(
       stateDir,
       "node_modules",
-      "@martian-engineering",
+      "@pandelis",
       "lossless-claw",
     );
     const generatedPath = join(
@@ -542,14 +542,14 @@ describe("lcm command", () => {
       "projects",
       "generated-project",
       "node_modules",
-      "@martian-engineering",
+      "@pandelis",
       "lossless-claw",
     );
     const extensionShadowPath = join(
       stateDir,
       "extensions",
       "node_modules",
-      "@martian-engineering",
+      "@pandelis",
       "lossless-claw",
     );
     mkdirSync(activePath, { recursive: true });
@@ -558,19 +558,19 @@ describe("lcm command", () => {
     mkdirSync(generatedPath, { recursive: true });
     writeFileSync(
       join(activePath, "package.json"),
-      JSON.stringify({ name: "@martian-engineering/lossless-claw", version: packageJson.version }),
+      JSON.stringify({ name: "@pandelis/lossless-claw", version: packageJson.version }),
     );
     writeFileSync(
       join(liveShadowPath, "package.json"),
-      JSON.stringify({ name: "@martian-engineering/lossless-claw", version: packageJson.version }),
+      JSON.stringify({ name: "@pandelis/lossless-claw", version: packageJson.version }),
     );
     writeFileSync(
       join(extensionShadowPath, "package.json"),
-      JSON.stringify({ name: "@martian-engineering/lossless-claw", version: packageJson.version }),
+      JSON.stringify({ name: "@pandelis/lossless-claw", version: packageJson.version }),
     );
     writeFileSync(
       join(generatedPath, "package.json"),
-      JSON.stringify({ name: "@martian-engineering/lossless-claw", version: "999.0.0" }),
+      JSON.stringify({ name: "@pandelis/lossless-claw", version: "999.0.0" }),
     );
     vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
     const command = createLcmCommand({
@@ -603,14 +603,14 @@ describe("lcm command", () => {
       stateDir,
       "extensions",
       "node_modules",
-      "@martian-engineering",
+      "@pandelis",
       "lossless-claw",
     );
     const activeSourcePath = join(activePath, "dist", "index.js");
     mkdirSync(join(activePath, "dist"), { recursive: true });
     writeFileSync(
       join(activePath, "package.json"),
-      JSON.stringify({ name: "@martian-engineering/lossless-claw", version: packageJson.version }),
+      JSON.stringify({ name: "@pandelis/lossless-claw", version: packageJson.version }),
     );
     writeFileSync(activeSourcePath, "export default {};\n");
     vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);

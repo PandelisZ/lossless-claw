@@ -267,7 +267,9 @@ try {
       Math.min(xs.length - 1, Math.ceil(xs.length * p) - 1)
     ];
   const results = [];
-  for (const injectedDelayMs of [0, 2])
+  for (const injectedDelayMs of process.argv.includes("--parity-only")
+    ? []
+    : [0, 2])
     for (const backend of [
       "sqlite-baseline",
       "sqlite-engine-baseline",
@@ -349,7 +351,11 @@ try {
   await writeFile(
     path.join(
       out,
-      process.env.LCM_POSTGRES_VIA_POOLER === "1"
+      process.argv.includes("--parity-only")
+        ? process.env.LCM_POSTGRES_VIA_POOLER === "1"
+          ? "parity-post-merge-pooler.json"
+          : "parity-post-merge-direct.json"
+        : process.env.LCM_POSTGRES_VIA_POOLER === "1"
         ? "benchmark-pooler.json"
         : "benchmark-direct.json"
     ),

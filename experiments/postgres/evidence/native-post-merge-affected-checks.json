@@ -1,0 +1,19 @@
+{
+  "incomingForkMain": "716d22dfcc938dbc4d89a1c093afb91d2cacf3da",
+  "typecheck": {
+    "passed": true,
+    "command": "mise exec -- npm run typecheck"
+  },
+  "build": {
+    "passed": true,
+    "command": "mise exec -- npm run build"
+  },
+  "tests": {
+    "command": "mise exec -- npx vitest run test/lcm-command.test.ts test/release-channel.test.ts test/turbopuffer-storage.test.ts test/plugin-reload-generations.test.ts test/postgres-config.test.ts test/storage-lifecycle.test.ts --maxWorkers=1 --testTimeout=30000",
+    "filesPassed": 6,
+    "testsPassed": 120,
+    "failed": 0
+  },
+  "production": false,
+  "note": "Preserved released fork package identity/version and all TP code. Only branch integration; no release/publish/deploy. No timing rerun: --checks-only executes complete assembly/engine/DAG parity and native direct/pooler/gateway/restart checks."
+}

@@ -1,6 +1,6 @@
 # Native PostgreSQL engine qualification
 
-This is a disabled-by-default fork experiment, not a production deployment or HA qualification. Native source baseline: `51c3c90bfe82fa649e4895dd1a2c4874b5e28f76`, package version 1.2.0. Reference exports use an immutable archive of that commit; the published tag is a separate baseline. The complete integration run is recorded in [native-checks-native.json](evidence/native-checks-native.json). A subsequent focused benchmark added all three complete-engine parity assertions; its current source inventory/command outcomes and metadata-collection caveat are in [native-focused-benchmark-checks.json](evidence/native-focused-benchmark-checks.json). Source digests use SHA256 of JSON.stringify(UTF-8 source), not raw sha256sum; the artifact manifest uses raw-byte SHA256.
+This is a disabled-by-default fork experiment, not a production deployment or HA qualification. Native source baseline: `51c3c90bfe82fa649e4895dd1a2c4874b5e28f76`, package version 1.2.0. Reference exports use an immutable archive of that commit; the published tag is a separate baseline. The complete integration run is recorded in [native-checks-native.json](evidence/native-checks-native.json). A subsequent focused benchmark added all three complete-engine parity assertions; its measurement source inventory/command outcomes and metadata-collection caveat are in [native-focused-benchmark-checks.json](evidence/native-focused-benchmark-checks.json). Source digests use SHA256 of JSON.stringify(UTF-8 source), not raw sha256sum; the artifact manifest uses raw-byte SHA256.
 
 ## Complete assembly measurements
 
@@ -45,3 +45,29 @@ PostgreSQL can now run the complete native engine storage/lifecycle in this boun
 The practical Vex activation work is an approved fork build/package pin, explicit schemas and restricted credentials, safe per-agent extraction from mixed organization SQLite files, a stopped-writer verified migration/cutover, filesystem payload copy, operational PostgreSQL doctor/backup UX and hosted network/HA qualification. The gateway itself now has real opt-in wiring; no Vex production integration has consumed it. Search uses PostgreSQL simple tokenization/ranking and explicitly differs from SQLite Porter stemming; arbitrary NUL-containing text cannot round-trip into PostgreSQL text. Read replicas are unsupported; reads require primary. Snapshot caps (10,000 rows/family, 16 MiB serialized JSON) are prototype bounds, not a large-history qualification.
 
 The Turbopuffer experiment is independent; its PostgreSQL benchmark mirror is not this adapter. No current comparable end-to-end Turbopuffer engine measurement was imported or inferred. Given the verified atomicity and now-live auxiliary paths, PostgreSQL is the more complete canonical-store candidate in this experiment, subject to those limits. See [the guide](../../docs/postgres.md) for configuration and the synthetic migration/rollback procedure.
+
+## Reconciliation with the released fork main
+
+After timing, fork main advanced to `716d22d` (the separate Turbopuffer release).
+The PG branch incorporates that commit, preserving its `@pandelis/lossless-claw`
+package identity/version/channel, all TP source and release metadata, and native
+OpenClaw version declarations. The PG changeset names the actual fork package.
+No new release/publication occurred. The frozen `51c3c90` SQLite baseline remains
+unchanged. The historical full SQLite run above predates this reconciliation.
+
+The affected command/release/TP/storage/lifecycle suite passed 120 tests across six
+files; typecheck and the complete build passed. Native checks repeated directly
+(21 passes) and through PgBouncer (20 passes, one explicitly skipped ACL case),
+with all three complete assembler/engine parity cases, full DAG parity, both real
+two-agent gateway proofs and restart verification passing. The `--checks-only`
+runner skips new timing samples; the measured table remains the earlier frozen
+run, not a claim of new timings after integration.
+
+Current integration source digests/commands are in [native-checks-post-merge.json](evidence/native-checks-post-merge.json),
+with [affected checks](evidence/native-post-merge-affected-checks.json),
+[direct parity](evidence/native-parity-post-merge-direct.json) and
+[pooler parity](evidence/native-parity-post-merge-pooler.json). Updated gateway and
+test records have the `native-post-merge-` prefix. The original evidence remains
+unchanged. This branch is still a draft and production remains SQLite.
+
+The same fresh read-only reviewer returned **Ready for the reconciliation scope**, verifying all 17 artifact checksums and 286 current source digests, conflict resolutions and the affected test logs. It retained the bounded experimental verdict; no production/HA/replica readiness follows.

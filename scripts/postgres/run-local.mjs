@@ -31,6 +31,7 @@ const docker = (...args) =>
   }).trim();
 const port = (name) => docker("port", name, "5432").split(":").at(-1);
 const restartOnly = process.argv.includes("--restart-only");
+const checksOnly = process.argv.includes("--checks-only");
 const evidence = {
   production: false,
   node: process.version,
@@ -112,7 +113,7 @@ try {
   };
   await ready(direct);
   const fixture =
-    process.argv[2] && process.argv[2] !== "--restart-only"
+    process.argv[2] && !process.argv[2].startsWith("--")
       ? process.argv[2]
       : "/tmp/lossless-claw-postgres-fixture/fixture-manifest.json";
   try {
@@ -136,7 +137,14 @@ try {
       [...tests, `--outputFile=${path.join(output, "tests-direct.json")}`],
       direct
     );
-    await run(["scripts/postgres/benchmark.mjs", fixture], direct);
+    await run(
+      [
+        "scripts/postgres/benchmark.mjs",
+        fixture,
+        ...(checksOnly ? ["--parity-only"] : []),
+      ],
+      direct
+    );
     await run(["scripts/postgres/gateway-smoke.mjs"], direct);
   }
   await writeFile(
@@ -175,7 +183,14 @@ try {
       [...tests, `--outputFile=${path.join(output, "tests-pooler.json")}`],
       pooled
     );
-    await run(["scripts/postgres/benchmark.mjs", fixture], pooled);
+    await run(
+      [
+        "scripts/postgres/benchmark.mjs",
+        fixture,
+        ...(checksOnly ? ["--parity-only"] : []),
+      ],
+      pooled
+    );
   }
   await run(["scripts/postgres/gateway-smoke.mjs"], pooled);
   // Restart only our disposable PostgreSQL server and verify actual gateway-created LCM state.
@@ -297,7 +312,11 @@ try {
   await writeFile(
     path.join(
       output,
-      restartOnly ? "checks-restart.json" : "checks-native.json"
+      restartOnly
+        ? "checks-restart.json"
+        : checksOnly
+        ? "checks-post-merge.json"
+        : "checks-native.json"
     ),
     JSON.stringify(evidence, null, 2) + "\n"
   );

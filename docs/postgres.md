@@ -2,6 +2,8 @@
 
 SQLite remains the default. This fork adds an explicitly selected asynchronous PostgreSQL engine, not a synchronous remote SQLite emulation. Nothing automatically provisions a schema, imports a database, or changes the production OpenClaw history service. Do not deploy this experiment yet.
 
+The current branch also preserves the separate fork-main Turbopuffer prerelease metadata (`@pandelis/lossless-claw@1.3.0-turbopuffer.0`); this PostgreSQL work has not been published. Its measured baseline and native OpenClaw pin are unchanged.
+
 The port starts from upstream commit `51c3c90bfe82fa649e4895dd1a2c4874b5e28f76` (package version 1.2.0). That checkout differs from the published 1.2.0 tag (`4bd12aa198c4903f6400a42fa00fa0efc6697063`). Frozen comparison modules are built from the exact checkout commit. Neither the native OpenClaw pin nor its compatibility declarations changed. The real local gateway proof uses OpenClaw **2026.9.2**.
 
 ## Select a backend
