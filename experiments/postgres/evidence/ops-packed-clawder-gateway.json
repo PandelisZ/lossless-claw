@@ -1,0 +1,34 @@
+{
+  "production": false,
+  "environment": "fresh local PostgreSQL18, actual packed/staged candidate, unchanged pinned npm OpenClaw host and deterministic HTTP inference",
+  "candidateCommit": "d14a127072b342467be36cbadef09082d0f03d93",
+  "archiveSha256": "6cbdaf1ac1052d00fe20cb24054b92a262d14de946fe42e52a2e4bf35fae60e3",
+  "nativeHostVersion": "2026.10.10-beta.4",
+  "hostScope": "pinned npm package; patched hosted image/native-history PostgreSQL routing not exercised",
+  "linkedPluginInstallPassed": true,
+  "runtimePreflightPassed": true,
+  "inheritedPrivilegeRejected": true,
+  "columnPrivilegeRejected": true,
+  "nativeDatabaseConfigPreserved": true,
+  "gateway": {
+    "environment": "real local OpenClaw gateway with synthetic HTTP model and disposable local PostgreSQL",
+    "openclawVersion": "2026.10.10-beta.4",
+    "candidateCommit": "d14a127072b342467be36cbadef09082d0f03d93",
+    "storeSchema": "lcm_adopt_2fee0fcd2a_one",
+    "secondAgent": {
+      "schema": "lcm_adopt_2fee0fcd2a_two",
+      "messages": 2,
+      "receipts": 1,
+      "cursors": 1,
+      "foreignSummaryObserved": false
+    },
+    "transport": "gateway WebSocket agent RPC with expect-final; no embedded fallback",
+    "pgOnlySummaryObserved": true,
+    "inferenceCalls": 3,
+    "messages": 4,
+    "cursors": 1,
+    "receipts": 2,
+    "runtimeRoleUsed": true,
+    "production": false
+  }
+}

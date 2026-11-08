@@ -193,7 +193,6 @@ const config = {
   },
 };
 const configPath = path.join(directory, "openclaw.json");
-await writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
 const modelKey = randomBytes(24).toString("hex");
 const environment = {
   ...Object.fromEntries(
@@ -229,6 +228,24 @@ const hostMetadata = JSON.parse(
     await import("node:fs/promises")
   ).readFile(path.join(path.dirname(binary), "package.json"), "utf8")
 );
+if (hostMetadata.version === "2026.10.10-beta.4") {
+  // This qualification target uses keyed agents and inherits its model for LCM.
+  // No plugin API/production version pin is changed by this probe-only adaptation.
+  config.agents.entries = Object.fromEntries(
+    config.agents.list.map(({ id, default: legacyDefault, ...entry }) => [
+      id,
+      entry,
+    ])
+  );
+  delete config.agents.list;
+  config.agents.ownership = "explicit";
+  // The beta host's native system/tool prompt exceeds this probe's old 8K budget.
+  // Use a realistic model window; this probe tests persistence, not system-prompt overflow.
+  config.models.providers.lcmsmoke.models[0].contextWindow = 131072;
+  delete config.plugins.entries["lossless-claw"].config.summaryProvider;
+  delete config.plugins.entries["lossless-claw"].config.summaryModel;
+}
+await writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
 if (process.env.LCM_GATEWAY_SMOKE_PLUGIN_ROOT) {
   const build = JSON.parse(
     await (
