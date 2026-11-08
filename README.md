@@ -1,5 +1,10 @@
 # @pandelis/lossless-claw
 
+This fork's `pz/turbopuffer-native` branch adds opt-in native Turbopuffer storage.
+It replaces the earlier bounded SQLite projection experiment; the published
+`1.3.0-turbopuffer.0` package predates this rewrite. See the
+[native backend and evidence](docs/experiments/turbopuffer-native/README.md).
+
 **Pandelis fork** of [Martian Engineering's Lossless Claw](https://github.com/Martian-Engineering/lossless-claw), retaining its MIT license and upstream attribution.
 
 This fork adds **opt-in experimental Turbopuffer context storage**. Install this

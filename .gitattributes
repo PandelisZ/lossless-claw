@@ -42,3 +42,6 @@ yarn.lock text eol=lf
 *.db binary
 *.sqlite binary
 *.sqlite3 binary
+
+# Fold raw synthetic metrics in source review.
+docs/experiments/turbopuffer-native/evidence/* linguist-generated=true
