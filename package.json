@@ -1,7 +1,7 @@
 {
-  "name": "@martian-engineering/lossless-claw",
-  "version": "1.2.0",
-  "description": "Lossless Context Management plugin for OpenClaw — DAG-based conversation summarization with threshold compaction",
+  "name": "@pandelis/lossless-claw",
+  "version": "1.3.0-turbopuffer.0",
+  "description": "Pandelis fork of Lossless Claw with opt-in experimental Turbopuffer context storage",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -43,7 +43,8 @@
     "docs/",
     "!docs/superpowers/",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "!docs/experiments/turbopuffer/evidence/"
   ],
   "dependencies": {
     "@sinclair/typebox": "0.34.48"
@@ -70,7 +71,8 @@
     }
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "turbopuffer"
   },
   "openclaw": {
     "extensions": [
@@ -90,10 +92,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Martian-Engineering/lossless-claw.git"
+    "url": "git+https://github.com/PandelisZ/lossless-claw.git"
   },
-  "homepage": "https://github.com/Martian-Engineering/lossless-claw#readme",
+  "homepage": "https://github.com/PandelisZ/lossless-claw#readme",
   "bugs": {
-    "url": "https://github.com/Martian-Engineering/lossless-claw/issues"
+    "url": "https://github.com/PandelisZ/lossless-claw/issues"
   }
 }

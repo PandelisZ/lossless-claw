@@ -11,7 +11,7 @@ not a complete gateway database replacement or a production rollout.
 Run `npm ci`, `npm run build:experimental-storage`, and import:
 
 ```js
-import { TurbopufferContextStorage } from "@martian-engineering/lossless-claw/dist/experimental/context-storage.js";
+import { TurbopufferContextStorage } from "@pandelis/lossless-claw/dist/experimental/context-storage.js";
 
 const storage = new TurbopufferContextStorage({
   backend: "turbopuffer",

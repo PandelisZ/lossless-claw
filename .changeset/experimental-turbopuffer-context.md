@@ -1,5 +1,5 @@
 ---
-"@martian-engineering/lossless-claw": minor
+"@pandelis/lossless-claw": minor
 ---
 
 Add an explicitly selected experimental Turbopuffer context-operation backend.
