@@ -17,6 +17,7 @@ const { values } = parseArgs({
     postgres: { type: "string" },
     "postgres-source-sha": { type: "string" },
     "key-helper": { type: "string" },
+    "client-location": { type: "string" },
   },
 });
 if (
@@ -113,7 +114,8 @@ const evidence = {
   results: [],
   assertions: {},
   notes: [
-    "Actual remote Turbopuffer vs local Docker PG: not a same-region network comparison.",
+    values["client-location"] ??
+      "Actual remote Turbopuffer vs local Docker PG: not a same-region network comparison.",
     "All assembly samples include remote reads, projection construction/migrations/FTS rebuild, exact upstream assembler and projection disposal.",
     "Only deterministic fake inference at the actual upstream summary boundary. Compaction n=3, so p95=max.",
     "Turbopuffer is canonical. Its SQLite :memory: projection is disposable; no persistent local database or PostgreSQL underneath it.",

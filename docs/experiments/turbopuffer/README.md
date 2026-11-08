@@ -141,6 +141,71 @@ Both runs' namespace cleanup succeeded, and their task-owned PostgreSQL containe
 were removed. This compares the real batched PG fork, not the earlier JSONB mirror
 or its statistics-sensitive slow query.
 
+### Same-region EC2 qualification
+
+A follow-up on November 7, 2026 (Pacific) runs the same harness, fixture and
+native source from a fresh **t3.large (2 vCPU / 8 GiB)** in `us-east-1a` against
+Turbopuffer `aws-us-east-1` over public HTTPS. PostgreSQL 18.6 is on that same
+EC2 host, in a loopback-only Docker container limited to 2 CPUs / 768 MiB with
+JIT disabled. Node is the same 26.12.1. PG fork source remains `1eebd7e`.
+There is no PrivateLink, no production data and no production infrastructure
+change. Provider AZ placement is unknown; same region does not imply same AZ.
+
+| EC2 complete operation             |   n | p50 ms | p95/max ms | Network calls |
+| ---------------------------------- | --: | -----: | ---------: | ------------: |
+| SQLite assembly                    |   5 |  17.74 |      26.94 |             0 |
+| PostgreSQL unbatched assembly      |   5 | 154.49 |     165.84 |       231 SQL |
+| PostgreSQL batched assembly        |   5 |  26.99 |      32.40 |         1 SQL |
+| Turbopuffer assembly               |   5 |  87.05 |     107.31 |        2 HTTP |
+| PostgreSQL FTS                     |   5 |   3.55 |      10.48 |         1 SQL |
+| Turbopuffer + projected native FTS |   5 |  73.78 |      83.39 |        2 HTTP |
+| PostgreSQL batched leaf compaction |   3 |  54.22 |      78.74 |        11 SQL |
+| Turbopuffer leaf compaction        |   3 | 367.83 |     380.15 |        4 HTTP |
+
+The initial assembled output hash still matches byte-for-byte, normalized
+post-compaction output matches, and organization/agent canaries remain absent.
+All 200 messages remain retained with 23 blocks and a 2,012-byte manifest.
+The same-region Turbopuffer path is substantially faster than the workstation
+run, but the CPU also changed: EC2 SQLite is 17.74 ms versus 4.96 ms on the
+workstation. Do not attribute the entire difference to network round-trip time.
+On the **same EC2 host**, batched PG assembly is about 3.2x faster than this
+Turbopuffer projection, and leaf compaction about 6.8x faster.
+
+Across the entire live run, including setup and validation, 45 query requests
+have a 19.50 ms median client time and 12 ms median provider-reported server
+time. Fifteen writes have a 136.94 ms median client time and 130 ms median server
+time. These aggregate distributions include import/publication work; they are
+not per-compaction phase percentiles or pure database/network timings. The
+remaining publication cost is therefore not explained solely by workstation WAN
+latency. Sixty billed query components each report the 1.28 GB minimum, totaling
+76.8 GB of billed queried units, not actual data scanned. Moving the client does
+not remove this billing floor. No inference or embedding service was called.
+
+[Raw samples and HTTP counters](evidence/ec2-us-east-1-comparison.json),
+[host/runtime and binary hashes](evidence/ec2-us-east-1-host.txt), and
+[execution/cleanup provenance](evidence/ec2-us-east-1-execution.json) retain the
+exact evidence. Samples remain small (five reads / three independent compactions,
+concurrency one), so p95 is simply the observed maximum. This is a bounded
+same-region trial, not an outage/load/durability qualification. Earlier protocol
+crash/race evidence is preserved separately; no new protocol claim follows here.
+
+Reproduce with the existing benchmark on an isolated development EC2 host, using
+its own disposable loopback PG database and synthetic fixture. Supply the key via
+anonymous stdin into the Node process; the wrapper sets the environment only in
+memory before importing the harness. Do not put the key in user data, SSH argv,
+SSM commands, shell history, output files or instance tags. Record topology with:
+
+```sh
+# Append to the existing benchmark invocation; this changes provenance only.
+--client-location 'EC2 us-east-1a; Turbopuffer aws-us-east-1 public HTTPS; PG loopback'
+```
+
+The instance had required IMDSv2, encrypted delete-on-termination storage, SSH
+restricted to the initiating client's /32, and a 90-minute termination backstop.
+Only its generated SSH key/security group and uniquely prefixed synthetic
+namespace were used. Cleanup evidence records actual deletion/termination rather
+than relying on the backstop. The normal plugin and production pins stay intact.
+
 The compaction callback is deterministic **only at the inference boundary**;
 summary selection, graph construction, persistence and context updates use real
 upstream code and real backend I/O. Three independent conversations are compacted
