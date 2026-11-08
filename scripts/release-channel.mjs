@@ -4,6 +4,9 @@ const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const BETA_VERSION =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-beta\.(0|[1-9]\d*)$/;
 
+const TURBOPUFFER_VERSION =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-turbopuffer\.(0|[1-9]\d*)$/;
+
 function parseVersion(version) {
   const stable = STABLE_VERSION.exec(version);
   if (stable) {
@@ -25,6 +28,15 @@ function parseVersion(version) {
     };
   }
 
+  const turbopuffer = TURBOPUFFER_VERSION.exec(version);
+  if (turbopuffer) {
+    return {
+      channel: "turbopuffer",
+      clawhubTags: "", // This fork's experimental channel is npm-only.
+      parts: turbopuffer.slice(1).map(BigInt),
+      prerelease: true,
+    };
+  }
   return null;
 }
 

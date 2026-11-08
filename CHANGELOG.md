@@ -2,6 +2,13 @@
 
 ## 1.3.0-turbopuffer.0
 
+<!-- release-rollback-version: 1.2.0 -->
+
+The rollback marker identifies the **upstream baseline**, not a prior version in
+the new `@pandelis` scope. This is the scope's first release. Turbopuffer callers
+must retain their fork implementation/data; switching package scopes back to the
+SQLite-only upstream package does not migrate Turbopuffer state.
+
 Initial Pandelis fork release, based on upstream Lossless Claw 1.2.0.
 
 - Add opt-in canonical Turbopuffer context operations with immutable blocks,

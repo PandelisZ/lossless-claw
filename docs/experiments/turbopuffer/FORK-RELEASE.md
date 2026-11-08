@@ -12,10 +12,13 @@ imports, idempotent receipts, query-only read cache and its reader leases agains
 the documented bounded API. Real-provider race/crash-boundary evidence remains
 in Git, while raw evidence dumps are excluded from the npm tarball.
 
-One fork packaging finding was fixed: package diagnostics and update hints used
+Fork packaging findings were fixed: package diagnostics and update hints used
 hardcoded upstream package names. They now derive the package name from this
 manifest, scan this scope's installed copies, and suggest its `turbopuffer`
-channel. Existing diagnostic tests now exercise the fork identity. Host version
+channel. Existing diagnostic tests now exercise the fork identity. The inherited release helper now explicitly recognizes the npm-only
+`turbopuffer` prerelease channel; its stable/beta guards remain tested. The
+changelog rollback marker identifies the upstream baseline, not a previous
+release in this new npm scope. Host version
 requirements, plugin id and config schema remain unchanged because this release
 introduces no new OpenClaw host API/configuration requirement.
 
