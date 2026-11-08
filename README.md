@@ -647,3 +647,9 @@ help bringing agents into your own systems, we'd like to hear from you:
 
 Bug reports and feature requests belong in
 [GitHub Issues](https://github.com/Martian-Engineering/lossless-claw/issues).
+
+## Experimental PostgreSQL development
+
+An opt-in, development-only [PostgreSQL store prototype](experiments/postgres/README.md)
+contains real database contracts and native assembler/compactor parity tests. It
+is not registered as an engine backend; SQLite remains the unchanged default.

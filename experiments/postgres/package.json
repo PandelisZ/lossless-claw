@@ -1,0 +1,14 @@
+{
+  "name": "lossless-claw-postgres-experiment",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node run-local.mjs",
+    "prepare:native": "node prepare.mjs"
+  },
+  "dependencies": {
+    "esbuild": "0.28.2",
+    "pg": "8.23.1"
+  }
+}

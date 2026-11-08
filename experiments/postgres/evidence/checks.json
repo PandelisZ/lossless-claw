@@ -1,0 +1,39 @@
+{
+  "nativeBaseline": "51c3c90bfe82fa649e4895dd1a2c4874b5e28f76",
+  "fixtureSha256": "597e3a64ffcd3c1121c34323f49fe865b9a2a7708897b76027d1e122f0e35ac0",
+  "direct": {
+    "storePassed": 15,
+    "focusedPassed": 16
+  },
+  "pgbouncer": {
+    "storePassed": 15,
+    "focusedPassed": 16
+  },
+  "sourceSha256": {
+    "database.mjs": "59bf913a114e2da8e4001e5f4223b244ab94f0a92b1f468d47141b93bd07b6a0",
+    "fixture.mjs": "b6b0df25e572e184c699979046de17b323814022386eb52384e307e19a032776",
+    "store.mjs": "b8d4e9ebafd41c9e9296a4e221dd51425c08739ec51e6971c7069a9d1162370c",
+    "transfer.mjs": "68356fd73ef4424856abef7a577a11d272840937b6befcda2a4d7cd85c810c29",
+    "snapshot.mjs": "b4b1cd0b68f4b45f6652481ccf1f9d69cb56964129ff259f3de028f9c0d92704",
+    "upstream-adapter.mjs": "5ec3b2d6c2374fcc39f5b7b5d57fc19b7d0f6e186b34c1440a8b6bfc04d877f1",
+    "store.test.mjs": "364ae35079fe24fbf01715bfc417cf89e433172a7c7911c6338541db3923a64e",
+    "snapshot.test.mjs": "20dd55349d90c6a7619e6561beee37ff82573c5826b30c1b463a6873fe4282c4",
+    "snapshot-benchmark.mjs": "4472cad3045a0521613156c20069b76ceecf3d87531c54dcad668e1ed49d0e1c",
+    "run-local.mjs": "780c9e7079f3af1b0f6204132f9c8c4b8313da8bd94969db0e8b1fff96ea08a7",
+    "benchmark.mjs": "f14686c85b2f061facf13333b7bcf85d5772001d53a4e1c12ea4f78789ec4c6e",
+    "restart-test.mjs": "a5a33beb41452cc20eef4039c8a88ae817abd506af42fc4331d13e7429802bfc",
+    "prepare.mjs": "f811f3b527bb2abf9f6036f11838e344b7b5e84a4a7e836bd0cdf3a5d086ff89"
+  },
+  "productionChanged": false,
+  "engineEndToEnd": false,
+  "nativeRegression": {
+    "testFilesPassed": 5,
+    "testsPassed": 112
+  },
+  "review": {
+    "verdict": "Ready as bounded experimental draft",
+    "gatewayReady": false,
+    "releaseReady": false,
+    "independentBenchmarkRerun": false
+  }
+}
