@@ -1,3 +1,4 @@
+import path from "node:path";
 import { storageLifecycle } from "./storage-lifecycle.js";
 import type { ContextEngine } from "../openclaw-bridge.js";
 import type { LcmDependencies } from "../types.js";
@@ -42,6 +43,7 @@ export function createPostgresRouter(
             ...deps.config,
             postgresSchemas: undefined,
             postgresAgentId: agentId,
+            largeFilesDir: path.join(deps.config.largeFilesDir, agentId),
             postgresSchema: schema,
           },
         },

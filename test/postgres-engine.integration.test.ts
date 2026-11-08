@@ -1138,7 +1138,7 @@ describe.skipIf(process.env.LCM_DISPOSABLE_POSTGRES !== "1")(
                 agentId,
               });
               await admin.query(
-                `CREATE ROLE "${name}" LOGIN; GRANT USAGE ON SCHEMA "${name}" TO "${name}"; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA "${name}" TO "${name}"`
+                `CREATE ROLE "${name}" LOGIN; GRANT USAGE ON SCHEMA "${name}" TO "${name}"; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA "${name}" TO "${name}"; GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA "${name}" TO "${name}"`
               );
               for (const table of POSTGRES_TABLES)
                 await admin.query(

@@ -1,3 +1,7 @@
+import {
+  discardAmbientPostgresSecrets,
+  requireLoopbackPostgres,
+} from "./local-environment.mjs";
 // A real local OpenClaw gateway, synthetic model HTTP server and disposable PG only.
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -9,6 +13,8 @@ import { randomBytes } from "node:crypto";
 import { build } from "esbuild";
 if (process.env.LCM_DISPOSABLE_POSTGRES !== "1")
   throw new Error("Requires an explicitly disposable PostgreSQL server");
+discardAmbientPostgresSecrets();
+requireLoopbackPostgres();
 const root = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../.."
@@ -40,15 +46,27 @@ const { PostgresDatabase, provisionPostgres, SummaryStore } = await import(
   path.join(generated, "store.mjs")
 );
 const directory = await mkdtemp(path.join(tmpdir(), "lcm-native-gateway-"));
-const schema = `lcm_gateway_${randomBytes(6).toString("hex")}`;
+const schema =
+  process.env.LCM_GATEWAY_SMOKE_SCHEMA ??
+  `lcm_gateway_${randomBytes(6).toString("hex")}`;
 const identity = {
   schema,
   organizationId: "synthetic-gateway-org",
   agentId: "one",
 };
-await provisionPostgres(identity);
-const secondIdentity = { ...identity, schema: schema + "_two", agentId: "two" };
-await provisionPostgres(secondIdentity);
+if (process.env.LCM_GATEWAY_SMOKE_PREPROVISIONED !== "1")
+  await provisionPostgres(identity, {
+    runtimeRole: process.env.LCM_GATEWAY_RUNTIME_ROLE,
+  });
+const secondIdentity = {
+  ...identity,
+  schema: process.env.LCM_GATEWAY_SMOKE_SECOND_SCHEMA ?? schema + "_two",
+  agentId: "two",
+};
+if (process.env.LCM_GATEWAY_SMOKE_PREPROVISIONED !== "1")
+  await provisionPostgres(secondIdentity, {
+    runtimeRole: process.env.LCM_GATEWAY_RUNTIME_ROLE,
+  });
 let inferenceCalls = 0;
 const summaryMarker = "LCM_PG_ONLY_SUMMARY_SEED20261104";
 const observedSummary = [];
@@ -117,6 +135,8 @@ const modelPort = model.address().port;
 const workspace = path.join(directory, "workspace");
 await mkdir(workspace);
 const config = {
+  logging: { file: path.join(directory, "gateway.log") },
+  update: { checkOnStart: false, auto: { enabled: false } },
   gateway: {
     mode: "local",
     port,
@@ -154,7 +174,7 @@ const config = {
   },
   plugins: {
     allow: ["lossless-claw"],
-    load: { paths: [root] },
+    load: { paths: [process.env.LCM_GATEWAY_SMOKE_PLUGIN_ROOT ?? root] },
     slots: { contextEngine: "lossless-claw" },
     entries: {
       "lossless-claw": {
@@ -176,17 +196,62 @@ const configPath = path.join(directory, "openclaw.json");
 await writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
 const modelKey = randomBytes(24).toString("hex");
 const environment = {
-  ...process.env,
+  ...Object.fromEntries(
+    ["PATH", "HOME", "LANG", "TMPDIR"]
+      .filter((key) => process.env[key] !== undefined)
+      .map((key) => [key, process.env[key]])
+  ),
+  PGHOST: process.env.PGHOST,
+  PGPORT: process.env.PGPORT,
+  PGUSER: process.env.PGUSER,
+  PGDATABASE: process.env.PGDATABASE,
+  LCM_DISPOSABLE_POSTGRES: "1",
+  ...(process.env.LCM_GATEWAY_RUNTIME_ROLE
+    ? {
+        LCM_PGUSER: process.env.LCM_GATEWAY_RUNTIME_ROLE,
+        LCM_PGHOST: process.env.PGHOST,
+        LCM_PGPORT: process.env.PGPORT,
+        LCM_PGDATABASE: process.env.PGDATABASE,
+        LCM_PGSSLMODE: "disable",
+      }
+    : {}),
   OPENCLAW_STATE_DIR: directory,
   OPENCLAW_CONFIG_PATH: configPath,
   LCM_SMOKE_MODEL_KEY: modelKey,
 };
-const binary = path.join(root, "node_modules/openclaw/openclaw.mjs");
+const binary =
+  process.env.LCM_GATEWAY_SMOKE_BINARY ??
+  path.join(root, "node_modules/openclaw/openclaw.mjs");
+if (!path.isAbsolute(binary))
+  throw new Error("Gateway smoke binary must be an absolute path");
+const hostMetadata = JSON.parse(
+  await (
+    await import("node:fs/promises")
+  ).readFile(path.join(path.dirname(binary), "package.json"), "utf8")
+);
+if (process.env.LCM_GATEWAY_SMOKE_PLUGIN_ROOT) {
+  const build = JSON.parse(
+    await (
+      await import("node:fs/promises")
+    ).readFile(
+      path.join(
+        process.env.LCM_GATEWAY_SMOKE_PLUGIN_ROOT,
+        "dist/postgres-build.json"
+      ),
+      "utf8"
+    )
+  );
+  if (
+    !process.env.LCM_GATEWAY_SMOKE_EXPECTED_COMMIT ||
+    build.commit !== process.env.LCM_GATEWAY_SMOKE_EXPECTED_COMMIT
+  )
+    throw new Error("Gateway candidate build pin mismatch");
+}
 const run = (args, timeout = 45000) =>
   new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [binary, ...args], {
       env: environment,
-      cwd: root,
+      cwd: directory,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -222,7 +287,7 @@ try {
       "--port",
       String(port),
     ],
-    { env: environment, cwd: root, stdio: ["ignore", "pipe", "pipe"] }
+    { env: environment, cwd: directory, stdio: ["ignore", "pipe", "pipe"] }
   );
   gateway.stdout.on("data", (c) => (logs += c));
   gateway.stderr.on("data", (c) => (logs += c));
@@ -231,6 +296,13 @@ try {
     if (gateway.exitCode !== null)
       throw new Error(logs.split(modelKey).join("[synthetic-key]"));
     try {
+      if (
+        !logs.includes(`listening on ws://127.0.0.1:${port}`) &&
+        !logs.includes("[gateway] http server listening")
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        continue;
+      }
       const response = await fetch(`http://127.0.0.1:${port}/health`);
       if (response.ok) {
         ready = true;
@@ -274,6 +346,10 @@ try {
           "SELECT conversation_id FROM conversations WHERE session_key=?"
         )
         .get("agent:one:postgres-smoke");
+      if (!conversation)
+        throw new Error(
+          "Gateway returned a model reply without initializing canonical PostgreSQL LCM state"
+        );
       const source = await db
         .prepare(
           "SELECT message_id FROM messages WHERE conversation_id=? ORDER BY seq"
@@ -380,7 +456,8 @@ try {
   const evidence = {
     environment:
       "real local OpenClaw gateway with synthetic HTTP model and disposable local PostgreSQL",
-    openclawVersion: "2026.9.2",
+    openclawVersion: hostMetadata.version,
+    candidateCommit: process.env.LCM_GATEWAY_SMOKE_EXPECTED_COMMIT ?? null,
     storeSchema: schema,
     secondAgent: {
       schema: secondIdentity.schema,
@@ -396,6 +473,7 @@ try {
     messages: rows.length,
     cursors: cursors.count,
     receipts: receipts.count,
+    runtimeRoleUsed: !!process.env.LCM_GATEWAY_RUNTIME_ROLE,
     production: false,
   };
   await writeFile(

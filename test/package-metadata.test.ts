@@ -77,6 +77,7 @@ describe("package OpenClaw compatibility metadata", () => {
   it("publishes the TypeScript lcm executable", () => {
     expect(packageJson.bin).toEqual({
       lcm: "dist/cli.js",
+      "lcm-postgres":"dist/postgres-cli.js",
       "lossless-claw-migrate-sessions": "dist/migrate-sessions.js",
     });
     expect(packageJson.scripts.build).toContain("build:cli");

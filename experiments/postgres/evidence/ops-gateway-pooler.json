@@ -1,0 +1,21 @@
+{
+  "environment": "real local OpenClaw gateway with synthetic HTTP model and disposable local PostgreSQL",
+  "openclawVersion": "2026.9.2",
+  "candidateCommit": null,
+  "storeSchema": "lcm_gateway_76dcc64e6fa7",
+  "secondAgent": {
+    "schema": "lcm_gateway_76dcc64e6fa7_two",
+    "messages": 2,
+    "receipts": 1,
+    "cursors": 1,
+    "foreignSummaryObserved": false
+  },
+  "transport": "gateway WebSocket agent RPC with expect-final; no embedded fallback",
+  "pgOnlySummaryObserved": true,
+  "inferenceCalls": 3,
+  "messages": 4,
+  "cursors": 1,
+  "receipts": 2,
+  "runtimeRoleUsed": true,
+  "production": false
+}

@@ -1,3 +1,7 @@
+import {
+  discardAmbientPostgresSecrets,
+  requireLoopbackPostgres,
+} from "./local-environment.mjs";
 // Owns and cleans only uniquely labeled disposable containers/network/config.
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes, createHash } from "node:crypto";
@@ -13,6 +17,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+discardAmbientPostgresSecrets();
+process.env.LCM_DISPOSABLE_POSTGRES = "1";
 const root = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../.."
@@ -32,6 +38,11 @@ const docker = (...args) =>
 const port = (name) => docker("port", name, "5432").split(":").at(-1);
 const restartOnly = process.argv.includes("--restart-only");
 const checksOnly = process.argv.includes("--checks-only");
+const operationsOnly = process.argv.includes("--operations-only");
+const runtimeRole = `lcm_org_${createHash("sha256")
+  .update("synthetic-gateway-org")
+  .digest("hex")
+  .slice(0, 32)}`;
 const evidence = {
   production: false,
   node: process.version,
@@ -112,6 +123,23 @@ try {
     PGDATABASE: "postgres",
   };
   await ready(direct);
+  if (operationsOnly) {
+    const admin = new pg.Pool({
+      host: direct.PGHOST,
+      port: Number(direct.PGPORT),
+      user: direct.PGUSER,
+      database: direct.PGDATABASE,
+      max: 1,
+    });
+    try {
+      await admin.query(`CREATE ROLE "${runtimeRole}" LOGIN`);
+    } finally {
+      await admin.end();
+    }
+    direct.LCM_GATEWAY_RUNTIME_ROLE = runtimeRole;
+    const { prepare } = await import("../../experiments/postgres/prepare.mjs");
+    await prepare();
+  }
   const fixture =
     process.argv[2] && !process.argv[2].startsWith("--")
       ? process.argv[2]
@@ -128,6 +156,7 @@ try {
     "node_modules/vitest/vitest.mjs",
     "run",
     "test/postgres-engine.integration.test.ts",
+    ...(operationsOnly ? ["test/postgres-operations.integration.test.ts"] : []),
     "--maxWorkers=2",
     "--reporter=default",
     "--reporter=json",
@@ -137,14 +166,15 @@ try {
       [...tests, `--outputFile=${path.join(output, "tests-direct.json")}`],
       direct
     );
-    await run(
-      [
-        "scripts/postgres/benchmark.mjs",
-        fixture,
-        ...(checksOnly ? ["--parity-only"] : []),
-      ],
-      direct
-    );
+    if (!operationsOnly || checksOnly)
+      await run(
+        [
+          "scripts/postgres/benchmark.mjs",
+          fixture,
+          ...(checksOnly ? ["--parity-only"] : []),
+        ],
+        direct
+      );
     await run(["scripts/postgres/gateway-smoke.mjs"], direct);
   }
   await writeFile(
@@ -156,7 +186,10 @@ try {
       )
     ).replace("__POSTGRES_CONTAINER__", server)
   );
-  await writeFile(path.join(config, "userlist.txt"), '"postgres" ""\n');
+  await writeFile(
+    path.join(config, "userlist.txt"),
+    '"postgres" ""\n' + (operationsOnly ? `"${runtimeRole}" ""\n` : "")
+  );
   docker(
     "run",
     "-d",
@@ -180,17 +213,23 @@ try {
   await ready(pooled);
   if (!restartOnly) {
     await run(
-      [...tests, `--outputFile=${path.join(output, "tests-pooler.json")}`],
-      pooled
-    );
-    await run(
       [
-        "scripts/postgres/benchmark.mjs",
-        fixture,
-        ...(checksOnly ? ["--parity-only"] : []),
+        ...tests.filter(
+          (value) => value !== "test/postgres-operations.integration.test.ts"
+        ),
+        `--outputFile=${path.join(output, "tests-pooler.json")}`,
       ],
       pooled
     );
+    if (!operationsOnly || checksOnly)
+      await run(
+        [
+          "scripts/postgres/benchmark.mjs",
+          fixture,
+          ...(checksOnly ? ["--parity-only"] : []),
+        ],
+        pooled
+      );
   }
   await run(["scripts/postgres/gateway-smoke.mjs"], pooled);
   // Restart only our disposable PostgreSQL server and verify actual gateway-created LCM state.
@@ -288,6 +327,7 @@ try {
       "package.json",
       "package-lock.json",
       "cli.ts",
+      "postgres-cli.ts",
     ],
     { cwd: root, encoding: "utf8" }
   )
@@ -314,6 +354,8 @@ try {
       output,
       restartOnly
         ? "checks-restart.json"
+        : operationsOnly
+        ? "checks-operations.json"
         : checksOnly
         ? "checks-post-merge.json"
         : "checks-native.json"

@@ -1,3 +1,7 @@
+import {
+  discardAmbientPostgresSecrets,
+  requireLoopbackPostgres,
+} from "./local-environment.mjs";
 import { tmpdir } from "node:os";
 // Small comparable full-assembler probe. All rows originate from the immutable synthetic fixture.
 import { readFile, mkdir, writeFile, mkdtemp, rm } from "node:fs/promises";
@@ -10,6 +14,8 @@ import { build } from "esbuild";
 import { prepare } from "../../experiments/postgres/prepare.mjs";
 if (process.env.LCM_DISPOSABLE_POSTGRES !== "1")
   throw new Error("Requires an explicitly disposable PostgreSQL server");
+discardAmbientPostgresSecrets();
+requireLoopbackPostgres();
 const root = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../.."
