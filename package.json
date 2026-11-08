@@ -1,7 +1,7 @@
 {
   "name": "@martian-engineering/lossless-claw",
   "version": "1.2.0",
-  "description": "Lossless Context Management plugin for OpenClaw — DAG-based conversation summarization with threshold compaction",
+  "description": "Lossless Context Management plugin for OpenClaw \u2014 DAG-based conversation summarization with threshold compaction",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -20,7 +20,7 @@
     "dag"
   ],
   "scripts": {
-    "build": "npm run build:plugin && npm run build:migrate-sessions && npm run build:cli && npm run build:ui",
+    "build": "npm run build:plugin && npm run build:migrate-sessions && npm run build:cli && npm run build:ui && npm run build:experimental-storage",
     "build:plugin": "esbuild index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/index.js --external:openclaw --external:\"@earendil-works/*\" --minify-whitespace",
     "build:migrate-sessions": "esbuild src/cli/migrate-sessions.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/migrate-sessions.js --external:openclaw --external:\"@earendil-works/*\" --minify-whitespace",
     "build:cli": "esbuild cli.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/cli.js --minify-whitespace",
@@ -31,7 +31,8 @@
     "test:tui": "cd tui && go test ./...",
     "typecheck": "tsc --noEmit --pretty false && tsc -p tsconfig.ui.json",
     "version-packages": "changeset version",
-    "build:ui": "esbuild ui/control-ui.ts --bundle --platform=browser --target=es2022 --format=esm --outfile=dist/control-ui/index.js --minify"
+    "build:ui": "esbuild ui/control-ui.ts --bundle --platform=browser --target=es2022 --format=esm --outfile=dist/control-ui/index.js --minify",
+    "build:experimental-storage": "esbuild src/storage/context-storage.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/experimental/context-storage.js --external:openclaw --external:\"@earendil-works/*\""
   },
   "files": [
     "dist/",
