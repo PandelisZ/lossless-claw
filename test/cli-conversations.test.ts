@@ -101,9 +101,9 @@ afterEach(() => {
 });
 
 describe("getGlobalStatus", () => {
-  it("reports deterministic database-wide counts and token totals", () => {
+  it("reports deterministic database-wide counts and token totals", async () => {
     const db = openReadOnlyDatabase(databasePath);
-    const status = getGlobalStatus(db);
+    const status = (await getGlobalStatus(db));
     db.close();
 
     expect(status).toMatchObject({
@@ -130,7 +130,7 @@ describe("getGlobalStatus", () => {
     ]);
   });
 
-  it("excludes inactive conversations' historical maintenance debt from actionable totals", () => {
+  it("excludes inactive conversations' historical maintenance debt from actionable totals", async () => {
     const db = new DatabaseSync(databasePath);
     db.exec(`
       INSERT INTO conversation_compaction_maintenance (
@@ -142,7 +142,7 @@ describe("getGlobalStatus", () => {
     db.close();
 
     const readDb = openReadOnlyDatabase(databasePath);
-    const status = getGlobalStatus(readDb);
+    const status = (await getGlobalStatus(readDb));
     readDb.close();
 
     expect(status.maintenance).toEqual({ pending: 1, running: 0, failed: 1 });
@@ -150,7 +150,7 @@ describe("getGlobalStatus", () => {
 });
 
 describe("transcript history gaps", () => {
-  it("reports gap totals in status and each gap in conversation detail", () => {
+  it("reports gap totals in status and each gap in conversation detail", async () => {
     const db = new DatabaseSync(databasePath);
     db.exec(`
       INSERT INTO conversation_transcript_gaps (
@@ -163,8 +163,8 @@ describe("transcript history gaps", () => {
     db.close();
 
     const readDb = openReadOnlyDatabase(databasePath);
-    const status = getGlobalStatus(readDb);
-    const detail = getConversationDiagnostics(readDb, { kind: "conversationId", value: 2 }, { freshTailCount: 8 });
+    const status = (await getGlobalStatus(readDb));
+    const detail = (await getConversationDiagnostics(readDb, { kind: "conversationId", value: 2 }, { freshTailCount: 8 }));
     readDb.close();
 
     expect(status.transcriptGaps).toEqual({ conversations: 2, gaps: 2, entries: 7, largestGap: 5 });
@@ -185,14 +185,14 @@ describe("transcript history gaps", () => {
     ]);
   });
 
-  it("reports no gaps for a database that predates the gap table", () => {
+  it("reports no gaps for a database that predates the gap table", async () => {
     const db = new DatabaseSync(databasePath);
     db.exec(`DROP TABLE conversation_transcript_gaps`);
     db.close();
     const readDb = openReadOnlyDatabase(databasePath);
-    expect(getGlobalStatus(readDb).transcriptGaps).toEqual({ conversations: 0, gaps: 0, entries: 0, largestGap: 0 });
+    expect((await getGlobalStatus(readDb)).transcriptGaps).toEqual({ conversations: 0, gaps: 0, entries: 0, largestGap: 0 });
     expect(
-      getConversationDiagnostics(readDb, { kind: "conversationId", value: 2 }, { freshTailCount: 8 }).transcriptGaps,
+      (await getConversationDiagnostics(readDb, { kind: "conversationId", value: 2 }, { freshTailCount: 8 })).transcriptGaps,
     ).toEqual([]);
     readDb.close();
   });
@@ -238,13 +238,13 @@ describe("conversation selection and pagination", () => {
 });
 
 describe("getConversationDiagnostics", () => {
-  it("returns compaction, focus, file, context, and depth diagnostics", () => {
+  it("returns compaction, focus, file, context, and depth diagnostics", async () => {
     const db = openReadOnlyDatabase(databasePath);
-    const diagnostics = getConversationDiagnostics(
+    const diagnostics = (await getConversationDiagnostics(
       db,
       { kind: "conversationId", value: 2 },
       { freshTailCount: 1 },
-    );
+    ));
     db.close();
 
     expect(diagnostics.conversation).toMatchObject({
@@ -279,7 +279,7 @@ describe("getConversationDiagnostics", () => {
     });
   });
 
-  it("reads a legacy bootstrap table without newer reconciliation columns", () => {
+  it("reads a legacy bootstrap table without newer reconciliation columns", async () => {
     const writable = new DatabaseSync(databasePath);
     writable.exec(`
       CREATE TABLE conversation_bootstrap_state (
@@ -302,11 +302,11 @@ describe("getConversationDiagnostics", () => {
     writable.close();
 
     const db = openReadOnlyDatabase(databasePath);
-    const diagnostics = getConversationDiagnostics(
+    const diagnostics = (await getConversationDiagnostics(
       db,
       { kind: "conversationId", value: 2 },
       { freshTailCount: 1 },
-    );
+    ));
     db.close();
 
     expect(diagnostics.bootstrap).toEqual({

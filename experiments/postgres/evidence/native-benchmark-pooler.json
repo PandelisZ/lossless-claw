@@ -1,0 +1,144 @@
+{
+  "environment": "local PostgreSQL through PgBouncer transaction pooling",
+  "production": false,
+  "sourceFixtureSha256": "597e3a64ffcd3c1121c34323f49fe865b9a2a7708897b76027d1e122f0e35ac0",
+  "sliceHash": "a896b196ba7a73ef37daaa0529016b5fe5702cda2bd1e8de8c0e78d662d47d5a",
+  "seed": 20261104,
+  "scope": {
+    "organizations": 1,
+    "agents": 1,
+    "conversations": 1,
+    "messages": 200,
+    "messageContentBytes": 80000,
+    "structuredParts": 2,
+    "contextItems": 95
+  },
+  "parityCases": [
+    "normal",
+    "token-budget",
+    "prompt-and-structured"
+  ],
+  "completeEngineParityCases": [
+    "normal",
+    "token-budget",
+    "prompt-and-structured"
+  ],
+  "expandedDagMessages": 200,
+  "expandedDagSummaries": 34,
+  "inferenceCalls": 0,
+  "note": "Complete ContextAssembler calls include snapshot loading and native focus lookup; postgres-engine-batched includes the complete native LcmContextEngine.assemble lifecycle and pressure checks. SQLite uses a warm local on-disk WAL file, not an in-memory database. Client I/O includes round trips and decoding, not isolated server CPU. 2ms/query rows are synthetic injected latency, not production measurements.",
+  "results": [
+    {
+      "backend": "sqlite-baseline",
+      "injectedDelayMs": 0,
+      "samples": 12,
+      "concurrency": 1,
+      "p50": 3.760547000000088,
+      "p95": 4.385346000000027,
+      "max": 4.385346000000027,
+      "tripsPerAssembly": [
+        0
+      ],
+      "p50ClientIoMs": 0,
+      "outputBytes": 47227
+    },
+    {
+      "backend": "sqlite-engine-baseline",
+      "injectedDelayMs": 0,
+      "samples": 12,
+      "concurrency": 1,
+      "p50": 11.841550000000097,
+      "p95": 23.980677000000014,
+      "max": 23.980677000000014,
+      "tripsPerAssembly": [
+        0
+      ],
+      "p50ClientIoMs": 0,
+      "outputBytes": 44883
+    },
+    {
+      "backend": "postgres-unbatched",
+      "injectedDelayMs": 0,
+      "samples": 12,
+      "concurrency": 1,
+      "p50": 34.86143799999991,
+      "p95": 43.716018000000076,
+      "max": 43.716018000000076,
+      "tripsPerAssembly": [
+        232
+      ],
+      "p50ClientIoMs": 31.236570999999458,
+      "outputBytes": 47227
+    },
+    {
+      "backend": "postgres-batched",
+      "injectedDelayMs": 0,
+      "samples": 12,
+      "concurrency": 1,
+      "p50": 8.244507999999769,
+      "p95": 9.190858999999818,
+      "max": 9.190858999999818,
+      "tripsPerAssembly": [
+        1
+      ],
+      "p50ClientIoMs": 6.8104339999999866,
+      "outputBytes": 47227
+    },
+    {
+      "backend": "postgres-engine-batched",
+      "injectedDelayMs": 0,
+      "samples": 12,
+      "concurrency": 1,
+      "p50": 24.240513000000192,
+      "p95": 29.408444000000145,
+      "max": 29.408444000000145,
+      "tripsPerAssembly": [
+        6
+      ],
+      "p50ClientIoMs": 15.756365000000187,
+      "outputBytes": 44883
+    },
+    {
+      "backend": "postgres-unbatched",
+      "injectedDelayMs": 2,
+      "samples": 12,
+      "concurrency": 1,
+      "p50": 557.7339170000005,
+      "p95": 563.7355090000001,
+      "max": 563.7355090000001,
+      "tripsPerAssembly": [
+        232
+      ],
+      "p50ClientIoMs": 68.5004689999987,
+      "outputBytes": 47227
+    },
+    {
+      "backend": "postgres-batched",
+      "injectedDelayMs": 2,
+      "samples": 12,
+      "concurrency": 1,
+      "p50": 10.463662000000113,
+      "p95": 12.029630999999426,
+      "max": 12.029630999999426,
+      "tripsPerAssembly": [
+        1
+      ],
+      "p50ClientIoMs": 6.8669600000012,
+      "outputBytes": 47227
+    },
+    {
+      "backend": "postgres-engine-batched",
+      "injectedDelayMs": 2,
+      "samples": 12,
+      "concurrency": 1,
+      "p50": 36.24932600000102,
+      "p95": 39.03912600000149,
+      "max": 39.03912600000149,
+      "tripsPerAssembly": [
+        6
+      ],
+      "p50ClientIoMs": 16.12343300000248,
+      "outputBytes": 44883
+    }
+  ]
+}

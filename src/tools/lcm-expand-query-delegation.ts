@@ -333,7 +333,7 @@ async function runDelegatedQueryAttempt(
     }
 
     // Bind the temporary child to this bucket and the preallocated token cap.
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: childSessionKey,
       issuerSessionId: params.callerSessionKey || "main",
       allowedConversationIds: [params.bucket.conversationId],
@@ -342,7 +342,7 @@ async function runDelegatedQueryAttempt(
         1,
         remainingDeadlineMs(params.deadline.totalDeadlineMs, performance.now()),
       ),
-    });
+    }));
     stampDelegatedExpansionContext({
       sessionKey: childSessionKey,
       requestId: params.requestId,
@@ -499,7 +499,7 @@ async function runDelegatedQueryAttempt(
       }
     }
     if (grantCreated) {
-      revokeDelegatedExpansionGrantForSession(childSessionKey, { removeBinding: true });
+      (await revokeDelegatedExpansionGrantForSession(childSessionKey, { removeBinding: true }));
     }
     clearDelegatedExpansionContext(childSessionKey);
   }

@@ -7,13 +7,16 @@ import path from "node:path";
 export const root = path.dirname(fileURLToPath(import.meta.url));
 export const commit = "51c3c90bfe82fa649e4895dd1a2c4874b5e28f76";
 export async function prepare(source = process.env.LCM_UPSTREAM_SOURCE) {
-  source ??= path.resolve(root, "../..");
-  // Experiments may change, but the native baseline used for parity must not.
-  execFileSync(
-    "git",
-    ["-C", source, "diff", "--exit-code", commit, "--", "src", "index.ts"],
-    { stdio: "pipe" },
-  );
+  if (source) {
+    // An explicitly supplied checkout must still match the frozen reference.
+    execFileSync("git", ["-C", source, "diff", "--exit-code", commit, "--", "src", "index.ts"], {stdio:"pipe"});
+  } else {
+    // Native development in this fork must not change the comparison baseline.
+    source=path.join(root,".generated","sqlite-baseline-source");
+    await mkdir(source,{recursive:true});
+    const archive=execFileSync("git",["-C",path.resolve(root,"../.."),"archive",commit,"src","index.ts","package.json"],{maxBuffer:32*1024*1024});
+    execFileSync("tar",["-xf","-","-C",source],{input:archive,stdio:["pipe","pipe","pipe"]});
+  }
   const metadata = JSON.parse(
     await readFile(path.join(source, "package.json")),
   );
@@ -45,6 +48,7 @@ export async function prepare(source = process.env.LCM_UPSTREAM_SOURCE) {
     ],
     "src/store/search-regex.ts": ["compileSafeSearchRegex"],
     "src/assembler.ts": ["ContextAssembler"],
+    "src/retrieval.ts": ["RetrievalEngine"],
     "src/compaction.ts": ["CompactionEngine"],
   };
   await build({

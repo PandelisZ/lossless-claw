@@ -76,14 +76,14 @@ function getOrInitBlockedRequestIds(sessionKey: string): Set<string> {
   return created;
 }
 
-function resolveFallbackDelegatedContext(
+async function resolveFallbackDelegatedContext(
   sessionKey: string,
   requestId: string,
-): DelegatedExpansionContext | undefined {
+): Promise<DelegatedExpansionContext | undefined> {
   if (!sessionKey) {
     return undefined;
   }
-  const grantId = resolveDelegatedExpansionGrantId(sessionKey);
+  const grantId = (await resolveDelegatedExpansionGrantId(sessionKey));
   if (!grantId) {
     return undefined;
   }
@@ -135,7 +135,7 @@ export function resolveExpansionRequestId(sessionKey?: string): string {
 /**
  * Resolve the next delegated expansion depth to stamp onto a child session.
  */
-export function resolveNextExpansionDepth(sessionKey?: string): number {
+export async function resolveNextExpansionDepth(sessionKey?: string): Promise<number> {
   const key = normalizeSessionKey(sessionKey);
   if (!key) {
     return 1;
@@ -144,7 +144,7 @@ export function resolveNextExpansionDepth(sessionKey?: string): number {
   if (existing) {
     return existing.expansionDepth + 1;
   }
-  return resolveDelegatedExpansionGrantId(key) ? EXPANSION_DELEGATION_DEPTH_CAP + 1 : 1;
+  return (await resolveDelegatedExpansionGrantId(key)) ? EXPANSION_DELEGATION_DEPTH_CAP + 1 : 1;
 }
 
 /**
@@ -189,15 +189,15 @@ export function clearDelegatedExpansionContext(sessionKey: string): void {
  * Delegated contexts are blocked at depth >= 1, with repeated request id
  * re-entry mapped to an explicit idempotency block reason.
  */
-export function evaluateExpansionRecursionGuard(params: {
+export async function evaluateExpansionRecursionGuard(params: {
   sessionKey?: string;
   requestId: string;
-}): ExpansionRecursionGuardDecision {
+}): Promise<ExpansionRecursionGuardDecision> {
   const sessionKey = normalizeSessionKey(params.sessionKey);
   const requestId = params.requestId.trim();
   const delegatedContext =
     delegatedContextBySessionKey.get(sessionKey) ??
-    resolveFallbackDelegatedContext(sessionKey, requestId || createExpansionRequestId());
+    (await resolveFallbackDelegatedContext(sessionKey, requestId || createExpansionRequestId()));
 
   if (!delegatedContext) {
     return {

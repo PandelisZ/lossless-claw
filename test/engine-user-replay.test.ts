@@ -137,7 +137,7 @@ it("serves replay identity from cursor ingestion and refreshes it on resync with
     live.push(message, runtimeCarrier(index), reply);
   }
   await engine.bootstrap({ sessionId, sessionKey, sessionTarget });
-  const assemble = () => engine.assemble({
+  const assemble = async () => engine.assemble({
     sessionId, sessionKey, sessionTarget, messages: live, tokenBudget: 100_000, availableTools: new Set(), prompt: "next",
   } as Parameters<typeof engine.assemble>[0]);
   const replayKeys = (messages: AgentMessage[]) =>

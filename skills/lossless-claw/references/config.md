@@ -878,3 +878,35 @@ This file should stay consistent with:
 - [`src/db/config.ts`](../../../src/db/config.ts)
 
 When config keys, aliases, defaults, or precedence rules change, update all of them together.
+
+## Experimental PostgreSQL engine
+
+SQLite remains the default (`storageBackend: "sqlite"`). The PostgreSQL engine is a fork experiment. Do not point it at production. See [the PostgreSQL guide](../../../docs/postgres.md) for explicit provisioning, migration, role isolation and limitations. OpenClaw version requirements remain unchanged.
+
+| Setting | Environment | Default | Meaning |
+| --- | --- | --- | --- |
+| `storageBackend` | `LCM_STORAGE_BACKEND` | `sqlite` | Explicitly select `postgres` for the native asynchronous engine. |
+| `postgresSchemas` | `LCM_POSTGRES_SCHEMAS` | unset | Explicit agent ID to distinct schema map (1–8 agents), instead of the single-agent settings. |
+| `postgresSchema` | `LCM_POSTGRES_SCHEMA` | unset | Pre-provisioned schema dedicated to one organization and agent. |
+| `postgresOrganizationId` | `LCM_POSTGRES_ORGANIZATION_ID` | unset | Organization identity checked against the schema. |
+| `postgresAgentId` | `LCM_POSTGRES_AGENT_ID` | unset | Agent identity checked against the schema and every gateway lifecycle/tool caller. |
+
+For `storageBackend: "postgres"`, supply the organization plus either the single-agent schema/agent settings or `postgresSchemas` (an object in configuration, JSON in the environment). Every mapped schema must be provisioned for its declared agent; tool arguments cannot select a schema. Connection credentials use standard `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` and PostgreSQL TLS environment settings. Do not put passwords or connection URLs in plugin configuration. PostgreSQL initialization is asynchronous and checks the existing schema; the gateway never runs DDL or migrates SQLite automatically.
+
+```json
+{
+  "plugins": {
+    "slots": { "contextEngine": "lossless-claw" },
+    "entries": {
+      "lossless-claw": {
+        "config": {
+          "storageBackend": "postgres",
+          "postgresSchema": "lcm_example_agent",
+          "postgresOrganizationId": "example-organization",
+          "postgresAgentId": "example-agent"
+        }
+      }
+    }
+  }
+}
+```

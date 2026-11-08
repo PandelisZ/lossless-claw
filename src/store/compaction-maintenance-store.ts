@@ -1,4 +1,4 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { StorageDatabase as DatabaseSync } from "../db/storage.js";
 import { withDatabaseTransaction } from "../transaction-mutex.js";
 import { parseUtcTimestampOrNull } from "./parse-utc-timestamp.js";
 
@@ -204,7 +204,7 @@ export class CompactionMaintenanceStore {
   async getConversationCompactionMaintenance(
     conversationId: number,
   ): Promise<ConversationCompactionMaintenanceRecord | null> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT
            conversation_id,
@@ -232,14 +232,14 @@ export class CompactionMaintenanceStore {
          FROM conversation_compaction_maintenance
          WHERE conversation_id = ?`,
       )
-      .get(conversationId) as ConversationCompactionMaintenanceRow | undefined;
+      .get(conversationId)) as ConversationCompactionMaintenanceRow | undefined;
     return row ? toMaintenanceRecord(row) : null;
   }
 
   private async saveConversationCompactionMaintenance(
     record: ConversationCompactionMaintenanceRecord,
   ): Promise<void> {
-    this.db
+    (await this.db
       .prepare(
         `INSERT INTO conversation_compaction_maintenance (
            conversation_id,
@@ -310,7 +310,7 @@ export class CompactionMaintenanceStore {
         record.resolutionReason,
         record.resolvedAt?.toISOString() ?? null,
         record.maintenanceRevision,
-      );
+      ));
   }
 
   /** Record or refresh deferred proactive-compaction debt for a conversation. */
@@ -358,7 +358,7 @@ export class CompactionMaintenanceStore {
     expectedRevision: number;
     resolvedAt?: Date;
   }): Promise<boolean> {
-    const result = this.db
+    const result = (await this.db
       .prepare(
         `UPDATE conversation_compaction_maintenance
          SET pending = 0,
@@ -382,7 +382,7 @@ export class CompactionMaintenanceStore {
         (input.resolvedAt ?? new Date()).toISOString(),
         input.conversationId,
         input.expectedRevision,
-      );
+      ));
     return Number(result.changes) === 1;
   }
 

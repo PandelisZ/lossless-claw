@@ -168,10 +168,10 @@ export function createLcmExpandTool(input: {
       }
       const isDelegatedSession = input.deps.isSubagentSessionKey(sessionKey);
       const delegatedGrantId = isDelegatedSession
-        ? (resolveDelegatedExpansionGrantId(sessionKey) ?? undefined)
+        ? ((await resolveDelegatedExpansionGrantId(sessionKey)) ?? undefined)
         : undefined;
       const delegatedGrant =
-        delegatedGrantId !== undefined ? runtimeAuthManager.getGrant(delegatedGrantId) : null;
+        delegatedGrantId !== undefined ? (await runtimeAuthManager.getGrant(delegatedGrantId)) : null;
       const authorizedOrchestrator =
         delegatedGrantId !== undefined ? wrapWithAuth(orchestrator, runtimeAuthManager) : null;
 

@@ -5,11 +5,11 @@ Lossless Claw so the async storage boundary and semantic fixes can be reviewed
 and contributed upstream in stages. It is self-contained in this repository:
 there is no application checkout, private patch cache or hosted service dependency.
 
-**It is not wired into `LcmContextEngine` and cannot replace the complete native
-engine end to end yet.** The default plugin and its SQLite behavior are unchanged.
-No plugin configuration field, OpenClaw version requirement or published npm
-artifact changes here. This private experiment is not release-ready and needs
-no release changeset until a maintainer chooses to ship a user-facing backend.
+This directory preserves the original standalone experiment and its evidence.
+It does not implement the new gateway path. The fork now separately contains
+an opt-in [native PostgreSQL engine](../../docs/postgres.md) with complete live
+cursor, receipt, pending-summary, focus and maintenance stores. SQLite remains
+the production default. Standalone checks do not qualify native gateway code.
 
 ## Reproduce
 
@@ -21,20 +21,16 @@ npm ci --ignore-scripts
 npm test
 ```
 
-The runner builds native exports from **this fork's source**, generates a small
+The runner builds native exports from **an immutable Git archive of the original baseline**, generates a small
 deterministic fixture and creates only uniquely named disposable PostgreSQL and
 PgBouncer containers/networks. No production credentials, DSNs or data are needed.
 Containers/volumes/config are removed in `finally`. `node_modules` and generated
-source/data/results stay ignored. The root repository dependency/config files
-are untouched; the experiment has its own private dependency lockfile.
+source/data/results stay ignored. The comparison retains its own private dependency lockfile; native integration now has separate root dependencies/configuration.
 
 The native source baseline is upstream main commit
-`51c3c90bfe82fa649e4895dd1a2c4874b5e28f76`, version 1.2.0. `prepare.mjs` rejects
-changes to the native `src`/`index.ts` baseline so parity is not silently measured
-against edited reference code. This differs from the published v1.2.0 tag commit
+`51c3c90bfe82fa649e4895dd1a2c4874b5e28f76`, version 1.2.0. `prepare.mjs` exports that exact Git commit into an experiment-owned ignored directory before building the reference, so parity never silently follows edited native code. An explicitly supplied source checkout still must pass the unchanged-source guard. This differs from the published v1.2.0 tag commit
 `4bd12aa198c4903f6400a42fa00fa0efc6697063`; the baseline is explicit in generated
-provenance and fixture metadata. Future native integration must deliberately
-update this guard and its qualification, rather than bypass it.
+provenance and fixture metadata. The native engine has separate current-source qualification; these frozen measurements are historical evidence.
 
 Default checks exercise real PostgreSQL directly and through **local PgBouncer
 transaction pooling**, with two server connections, prepared-statement tracking

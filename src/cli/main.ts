@@ -147,11 +147,12 @@ function runConfigCommand(parsed: ParsedCliArgs, config: ConfigView): CommandRes
 }
 
 // Dispatch every command that reads the LCM database through one read-only handle.
-function runDatabaseCommand(
+async function runDatabaseCommand(
   parsed: ParsedCliArgs,
   paths: ResolvedCliPaths,
   config: ConfigView,
-): CommandResult {
+): Promise<CommandResult> {
+  if(config.effective.storageBackend === "postgres") throw new CliError("UNSUPPORTED_BACKEND", "PostgreSQL database inspection is unavailable in the SQLite CLI; use the configured gateway lifecycle and PostgreSQL tools.", 2);
   const db = openReadOnlyDatabase(paths.databasePath);
   try {
     switch (parsed.command.kind) {
@@ -164,7 +165,7 @@ function runDatabaseCommand(
               count: config.effective.freshTailCount,
               maxTokens: config.effective.freshTailMaxTokens ?? null,
             },
-            status: getGlobalStatus(db),
+            status: (await getGlobalStatus(db)),
           },
         };
       case "conversations.list": {
@@ -178,10 +179,10 @@ function runDatabaseCommand(
       }
       case "conversations.show":
         return {
-          data: getConversationDiagnostics(db, parsed.selector!, {
+          data: (await getConversationDiagnostics(db, parsed.selector!, {
             freshTailCount: config.effective.freshTailCount,
             freshTailMaxTokens: config.effective.freshTailMaxTokens,
-          }),
+          })),
         };
       case "messages.list": {
         const page = listMessages(db, {
@@ -242,7 +243,7 @@ function runDatabaseCommand(
 }
 
 /** Execute one `lcm` invocation and return its stable process exit code. */
-export function runCli(args: string[], io: CliIo = {}): number {
+export async function runCli(args: string[], io: CliIo = {}): Promise<number> {
   const env = io.env ?? process.env;
   const writeStdout = io.stdout ?? ((text: string) => process.stdout.write(text));
   const writeStderr = io.stderr ?? ((text: string) => process.stderr.write(text));
@@ -281,7 +282,7 @@ export function runCli(args: string[], io: CliIo = {}): number {
       const context = resolveInvocationContext(parsed, env);
       paths = context.paths;
       result = runConfigCommand(parsed, context.config)
-        ?? runDatabaseCommand(parsed, context.paths, context.config);
+        ?? (await runDatabaseCommand(parsed, context.paths, context.config));
     }
     const envelope = createSuccessEnvelope(
       parsed.command.kind,

@@ -296,13 +296,13 @@ async function runDelegatedExpansionPass(params: {
   const childSessionKey = `agent:${requesterAgentId}:subagent:${crypto.randomUUID()}`;
   let runId = "";
 
-  createDelegatedExpansionGrant({
+  (await createDelegatedExpansionGrant({
     delegatedSessionKey: childSessionKey,
     issuerSessionId: params.requesterSessionKey,
     allowedConversationIds: [params.conversationId],
     tokenCap: params.tokenCap,
     ttlMs: MAX_GATEWAY_TIMEOUT_MS,
-  });
+  }));
   stampDelegatedExpansionContext({
     sessionKey: childSessionKey,
     requestId: params.requestId,
@@ -424,7 +424,7 @@ async function runDelegatedExpansionPass(params: {
     } catch {
       // Cleanup is best-effort.
     }
-    revokeDelegatedExpansionGrantForSession(childSessionKey, { removeBinding: true });
+    (await revokeDelegatedExpansionGrantForSession(childSessionKey, { removeBinding: true }));
     clearDelegatedExpansionContext(childSessionKey);
   }
 }
@@ -450,10 +450,10 @@ export async function runDelegatedExpansionLoop(params: {
   requestId?: string;
 }): Promise<DelegatedExpansionLoopResult> {
   const requestId = params.requestId?.trim() || resolveExpansionRequestId(params.requesterSessionKey);
-  const recursionCheck = evaluateExpansionRecursionGuard({
+  const recursionCheck = (await evaluateExpansionRecursionGuard({
     sessionKey: params.requesterSessionKey,
     requestId,
-  });
+  }));
   recordExpansionDelegationTelemetry({
     deps: params.deps,
     component: "runDelegatedExpansionLoop",

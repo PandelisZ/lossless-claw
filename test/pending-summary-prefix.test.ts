@@ -78,7 +78,7 @@ async function setup(path = ":memory:") {
         "UPDATE pending_summary_nodes SET status = 'ready', content = ?, token_count = 2 WHERE node_id = ?",
       )
       .run(`leaf ${index}`, leaves[index]!.nodeId);
-  const publish = () =>
+  const publish = async () =>
     coordinator.runOnce({
       conversationId,
       publishPolicy: "publish-ready-only",

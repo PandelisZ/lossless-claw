@@ -1,3 +1,7 @@
+import { createPostgresRouter } from "./postgres-router.js";
+import { createPostgresLcmCommand } from "./lcm-command.js";
+import { createPostgresSharedInit } from "./postgres-init.js";
+import { validatePostgresSchema } from "../db/postgres/database.js";
 /**
  * @martian-engineering/lossless-claw — Lossless Context Management plugin for OpenClaw
  *
@@ -1577,10 +1581,17 @@ function wirePluginHandlers(
   shared: SharedLcmInit,
   openClawConfig?: unknown,
 ): void {
-  registerContextExplorer(api, shared.waitForDatabase);
-  registerContextExplorerRepair(api, shared.waitForDatabase, { config: deps.config, deps, runtimeConfig: openClawConfig });
+  const engineFor=async(actor:Parameters<LcmContextEngine["assertStorageAuthority"]>[0])=>{
+    const engine=await(shared.waitForScopedEngine?.(actor)??shared.waitForEngine());
+    if(shared.storageBackend==="postgres")engine.assertStorageAuthority(actor);
+    return engine;
+  };
+  if (shared.storageBackend !== "postgres") {
+    registerContextExplorer(api, shared.waitForDatabase);
+    registerContextExplorerRepair(api, shared.waitForDatabase, { config: deps.config, deps, runtimeConfig: openClawConfig });
+  }
   api.on("before_reset", async (event, ctx) => {
-    await (await shared.waitForEngine()).handleBeforeReset({
+    await (await engineFor(ctx)).handleBeforeReset({
       reason: event.reason,
       sessionId: ctx.sessionId,
       sessionKey: ctx.sessionKey,
@@ -1589,12 +1600,12 @@ function wirePluginHandlers(
   api.on("before_prompt_build", () => ({
     prependSystemContext: LOSSLESS_RECALL_POLICY_PROMPT,
   }));
-  api.on("session_end", async (event) => {
+  api.on("session_end", async (event,ctx) => {
     const lifecycleEvent = event as SessionEndLifecycleEvent;
     if (isGatewayLifecycleSessionEndReason(lifecycleEvent.reason)) {
       return;
     }
-    await (await shared.waitForEngine()).handleSessionEnd({
+    await (await engineFor(ctx.sessionKey||ctx.agentId?ctx:lifecycleEvent)).handleSessionEnd({
       reason: lifecycleEvent.reason,
       sessionId: lifecycleEvent.sessionId,
       sessionKey: lifecycleEvent.sessionKey,
@@ -1604,6 +1615,7 @@ function wirePluginHandlers(
   });
 
   api.registerContextEngine("lossless-claw", () => {
+    if(shared.waitForContextEngine)return shared.waitForContextEngine().then(next=>new MemorySupplementContextEngine(next));
     const engine = shared.getCachedEngine();
     return engine
       ? new MemorySupplementContextEngine(engine)
@@ -1626,7 +1638,7 @@ function wirePluginHandlers(
       // control(); it already throws LcmProgrammaticControlUnavailableError
       // with a structured reasonCode. Duplicating it here would shadow that.
       try {
-        const engine = await shared.waitForEngine();
+        const engine = await engineFor(ctx);
         const operation = ctx.payload?.operation as ContextEngineControlOperation;
         return { ok: true, result: await engine.control({ operation, sessionKey: ctx.sessionKey }) };
       } catch (err) {
@@ -1639,48 +1651,65 @@ function wirePluginHandlers(
     },
   });
 
+  const scopeTool = (tool: ReturnType<typeof createLcmGrepTool>, ctx: {sessionKey?:string}) => {
+    if(shared.storageBackend!=="postgres") return tool;
+    const execute=tool.execute;
+    return {...tool,execute:async(...args:Parameters<typeof execute>)=>{
+      const engine=await engineFor(ctx);
+      if(!ctx.sessionKey) throw new Error("PostgreSQL recall requires an agent-scoped session key");
+      engine.assertStorageAuthority(ctx);
+      return engine.withStorageAuthority(()=>execute(...args));
+    }};
+  };
+
   api.registerTool(
     (ctx) =>
-      createLcmGrepTool({
+      scopeTool(createLcmGrepTool({
         deps,
-        getLcm: shared.waitForEngine,
+        getLcm: ()=>engineFor(ctx),
         sessionId: ctx.sessionId,
         sessionKey: ctx.sessionKey,
-      }),
+      }),ctx),
     { name: "lcm_grep" },
   );
   api.registerTool(
     (ctx) =>
-      createLcmDescribeTool({
+      scopeTool(createLcmDescribeTool({
         deps,
-        getLcm: shared.waitForEngine,
+        getLcm: ()=>engineFor(ctx),
         sessionId: ctx.sessionId,
         sessionKey: ctx.sessionKey,
-      }),
+      }),ctx),
     { name: "lcm_describe" },
   );
   api.registerTool(
     (ctx) =>
-      createLcmExpandTool({
+      scopeTool(createLcmExpandTool({
         deps,
-        getLcm: shared.waitForEngine,
+        getLcm: ()=>engineFor(ctx),
         sessionId: ctx.sessionId,
         sessionKey: ctx.sessionKey,
-      }),
+      }),ctx),
     { name: "lcm_expand" },
   );
   api.registerTool(
     (ctx) =>
-      createLcmExpandQueryTool({
+      scopeTool(createLcmExpandQueryTool({
         deps,
-        getLcm: shared.waitForEngine,
+        getLcm: ()=>engineFor(ctx),
         sessionId: ctx.sessionId,
         sessionKey: ctx.sessionKey,
         requesterSessionKey: ctx.sessionKey,
-      }),
+      }),ctx),
     { name: "lcm_expand_query" },
   );
 
+  if (shared.storageBackend === "postgres") {
+    api.registerCommand(createPostgresLcmCommand({
+      db:ctx=>shared.waitForPostgresDatabase!(ctx),config:deps.config,deps,getLcm:ctx=>engineFor(ctx??{}),
+    }));
+    return;
+  }
   api.registerCommand(
     createLcmCommand({
       db: shared.waitForDatabase,
@@ -1717,6 +1746,29 @@ const lcmPlugin = {
     assertContextEngineRegistrationAvailable(api);
     const registrationConfig = resolveRegistrationConfig(api);
     const deps = createLcmDependencies(api, registrationConfig);
+    if (deps.config.storageBackend === "postgres") {
+      const routed=deps.config.postgresSchemas!==undefined;
+      if(!deps.config.postgresOrganizationId?.trim())throw new Error("PostgreSQL requires an explicit organization identity");
+      const schema=routed?undefined:validatePostgresSchema(deps.config.postgresSchema??"");
+      if(!routed&&!deps.config.postgresAgentId?.trim())throw new Error("PostgreSQL requires an explicit agent identity");
+      const key=routed?`postgres-routed:${deps.config.postgresOrganizationId}:${JSON.stringify(Object.entries(deps.config.postgresSchemas!).sort())}`:`postgres:${schema}:${deps.config.postgresOrganizationId}:${deps.config.postgresAgentId}`;
+      let shared=getSharedInit(key);
+      if(!shared || shared.stopped){
+        shared=routed?createPostgresRouter(deps,canInitializeRuntimeDatabase(api)):createPostgresSharedInit(deps,canInitializeRuntimeDatabase(api));
+        if(canInitializeRuntimeDatabase(api))setSharedInit(key,shared);
+      }
+      const pgShared=shared;
+      wirePluginHandlers(api,deps,pgShared,registrationConfig.openClawConfig);
+      api.on("gateway_stop",async()=>{await pgShared.close?.();if(getSharedInit(key)===pgShared)removeSharedInit(key);});
+      api.on("gateway_start",async()=>{
+        const active=getSharedInit(key);
+        if(active && active!==pgShared && !active.stopped)return;
+        await pgShared.restart?.();
+        if(canInitializeRuntimeDatabase(api))setSharedInit(key,pgShared);
+      });
+      readPluginLifecycle(api)?.onDispose?.(pgShared.retain());
+      return;
+    }
     const dbPath = deps.config.databasePath;
     const normalizedDbPath = normalizePath(dbPath);
     const allowRuntimeDatabaseInit = canInitializeRuntimeDatabase(api);

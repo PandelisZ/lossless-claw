@@ -24,8 +24,7 @@ const outputDirectory =
   process.argv[3] ?? path.join(root, ".generated/results");
 await mkdir(outputDirectory, { recursive: true });
 await mkdir(path.join(root, ".generated"), { recursive: true });
-const source = path.resolve(root, "../..");
-await prepare(source);
+await prepare();
 async function run(file, args = [], environment = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.join(root, file), ...args], {

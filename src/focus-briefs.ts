@@ -737,13 +737,13 @@ async function runDelegatedFocusWorkflow(params: {
   const childSessionKey = `agent:${requesterAgentId}:subagent:${crypto.randomUUID()}`;
   let runId = "";
 
-  createDelegatedExpansionGrant({
+  (await createDelegatedExpansionGrant({
     delegatedSessionKey: childSessionKey,
     issuerSessionId: params.requesterSessionKey,
     allowedConversationIds: [params.conversationId],
     tokenCap,
     ttlMs: timeoutMs + 60_000,
-  });
+  }));
   stampDelegatedExpansionContext({
     sessionKey: childSessionKey,
     requestId,
@@ -890,7 +890,7 @@ async function runDelegatedFocusWorkflow(params: {
     } catch {
       // Cleanup is best-effort.
     }
-    revokeDelegatedExpansionGrantForSession(childSessionKey, { removeBinding: true });
+    (await revokeDelegatedExpansionGrantForSession(childSessionKey, { removeBinding: true }));
     clearDelegatedExpansionContext(childSessionKey);
   }
 }

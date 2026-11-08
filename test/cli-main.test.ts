@@ -50,18 +50,18 @@ function seedFixture(): void {
   }, null, 2)}\n`, { mode: 0o600 });
 }
 
-function invoke(args: string[]): {
+async function invoke(args: string[]): Promise<{
   exitCode: number;
   stdout: string;
   stderr: string;
-} {
+}> {
   let stdout = "";
   let stderr = "";
-  const exitCode = runCli(args, {
+  const exitCode = (await runCli(args, {
     env: { HOME: directory, OPENCLAW_CONFIG_PATH: configPath },
     stdout: (text) => { stdout += text; },
     stderr: (text) => { stderr += text; },
-  });
+  }));
   return { exitCode, stdout, stderr };
 }
 
@@ -77,8 +77,16 @@ afterEach(() => {
 });
 
 describe("runCli", () => {
-  it("dispatches status with config, path, size, and database diagnostics", () => {
-    const result = invoke(["status", "--pretty"]);
+  it("rejects PostgreSQL inspection instead of reporting a valid SQLite decoy", async () => {
+    writeFileSync(configPath, JSON.stringify({plugins:{entries:{"lossless-claw":{config:{storageBackend:"postgres",databasePath}}}}}));
+    const result=await invoke(["status"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(JSON.parse(result.stderr).error.code).toBe("UNSUPPORTED_BACKEND");
+  });
+
+  it("dispatches status with config, path, size, and database diagnostics", async () => {
+    const result = (await invoke(["status", "--pretty"]));
     const envelope = JSON.parse(result.stdout);
 
     expect(result).toMatchObject({ exitCode: 0, stderr: "" });
@@ -136,16 +144,16 @@ describe("runCli", () => {
       "config.get",
       (data: unknown) => expect(data).toMatchObject({ rawValue: 1, effectiveValue: 1 }),
     ],
-  ])("dispatches %s", (args, command, assertData) => {
-    const result = invoke(args as string[]);
+  ])("dispatches %s", async (args, command, assertData) => {
+    const result = (await invoke(args as string[]));
     const envelope = JSON.parse(result.stdout);
     expect(result.exitCode).toBe(0);
     expect(envelope.command).toBe(command);
     assertData(envelope.data);
   });
 
-  it("returns a read-only reserved doctor namespace", () => {
-    const result = invoke(["doctor"]);
+  it("returns a read-only reserved doctor namespace", async () => {
+    const result = (await invoke(["doctor"]));
     expect(JSON.parse(result.stdout)).toMatchObject({
       ok: true,
       command: "doctor",
@@ -153,19 +161,19 @@ describe("runCli", () => {
     });
   });
 
-  it("uses the invocation state directory for effective config defaults", () => {
+  it("uses the invocation state directory for effective config defaults", async () => {
     writeFileSync(configPath, `${JSON.stringify({
       plugins: { entries: { "lossless-claw": { config: {} } } },
     })}\n`, { mode: 0o600 });
     const stateDirectory = join(directory, "profile");
 
-    const result = invoke([
+    const result = (await invoke([
       "config",
       "get",
       "databasePath",
       "--openclaw-dir",
       stateDirectory,
-    ]);
+    ]));
 
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
@@ -173,7 +181,7 @@ describe("runCli", () => {
     });
   });
 
-  it("lets config set repair the targeted value in an invalid current config", () => {
+  it("lets config set repair the targeted value in an invalid current config", async () => {
     writeFileSync(configPath, `${JSON.stringify({
       plugins: {
         entries: {
@@ -190,7 +198,7 @@ describe("runCli", () => {
       },
     })}\n`, { mode: 0o600 });
 
-    const result = invoke(["config", "set", "contextThresholdOverrides", "[]"]);
+    const result = (await invoke(["config", "set", "contextThresholdOverrides", "[]"]));
 
     expect(result).toMatchObject({ exitCode: 0, stderr: "" });
     expect(JSON.parse(result.stdout)).toMatchObject({
@@ -211,8 +219,8 @@ describe("runCli", () => {
       });
   });
 
-  it("includes resource-specific options in agent-readable help", () => {
-    const result = invoke(["--help"]);
+  it("includes resource-specific options in agent-readable help", async () => {
+    const result = (await invoke(["--help"]));
     expect(JSON.parse(result.stdout)).toMatchObject({
       data: {
         selectorOptions: expect.arrayContaining(["--conversation-id <id>", "--session-key <key>"]),
@@ -223,15 +231,15 @@ describe("runCli", () => {
     });
   });
 
-  it("renders compact table output from the same response data", () => {
-    const result = invoke(["conversations", "list", "--format", "table"]);
+  it("renders compact table output from the same response data", async () => {
+    const result = (await invoke(["conversations", "list", "--format", "table"]));
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("conversationId");
     expect(result.stdout).toContain("pagination.hasMore");
   });
 
-  it("writes structured errors to stderr with stable exit codes", () => {
-    const result = invoke(["messages", "list"]);
+  it("writes structured errors to stderr with stable exit codes", async () => {
+    const result = (await invoke(["messages", "list"]));
     expect(result).toMatchObject({ exitCode: 2, stdout: "" });
     expect(JSON.parse(result.stderr)).toEqual({
       ok: false,
@@ -242,11 +250,11 @@ describe("runCli", () => {
     });
   });
 
-  it("reports SQLite query failures with database exit code 5", () => {
+  it("reports SQLite query failures with database exit code 5", async () => {
     const emptyDatabasePath = join(directory, "empty.db");
     new DatabaseSync(emptyDatabasePath).close();
 
-    const result = invoke(["status", "--db", emptyDatabasePath]);
+    const result = (await invoke(["status", "--db", emptyDatabasePath]));
 
     expect(result).toMatchObject({ exitCode: 5, stdout: "" });
     expect(JSON.parse(result.stderr)).toMatchObject({

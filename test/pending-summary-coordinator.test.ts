@@ -606,7 +606,7 @@ describe("PendingCompactionCoordinator", () => {
     const parents = await summaryStore.getSummaryParents(root!.summaryId);
     expect(parents).toHaveLength(2);
     const parentSummaries = await Promise.all(
-      parents.map((parent) => summaryStore.getSummary(parent.summaryId)),
+      parents.map(async (parent) => summaryStore.getSummary(parent.summaryId)),
     );
     expect(parentSummaries).toEqual(
       expect.arrayContaining([
@@ -1753,7 +1753,7 @@ describe("PendingCompactionCoordinator", () => {
         return `leaf(${sourceText.slice(0, 24)})`;
       },
     });
-    const runPrepareOnly = () =>
+    const runPrepareOnly = async () =>
       coordinator.runOnce({
         conversationId: conversation.conversationId,
         publishPolicy: "prepare-only",

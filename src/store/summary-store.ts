@@ -1,5 +1,6 @@
+import { loadContextSnapshot } from "../db/postgres/context-snapshot.js";
 import { open, realpath } from "node:fs/promises";
-import type { DatabaseSync } from "node:sqlite";
+import { isPostgresDatabase, type StorageDatabase as DatabaseSync } from "../db/storage.js";
 import { resolve as resolvePath, sep as pathSep } from "node:path";
 import { withDatabaseTransaction } from "../transaction-mutex.js";
 import { appendConversationScopeConstraint } from "./conversation-scope.js";
@@ -251,7 +252,7 @@ const CJK_QUERY_SEGMENT_RE =
 const LATIN_QUERY_TOKEN_RE = /[a-zA-Z0-9][\w./-]*/g;
 // ── Row mappers ───────────────────────────────────────────────────────────────
 
-function toSummaryRecord(row: SummaryRow): SummaryRecord {
+export function toSummaryRecord(row: SummaryRow): SummaryRecord {
   let fileIds: string[] = [];
   try {
     fileIds = JSON.parse(row.file_ids);
@@ -291,7 +292,7 @@ function toSummaryRecord(row: SummaryRow): SummaryRecord {
   };
 }
 
-function toContextItemRecord(row: ContextItemRow): ContextItemRecord {
+export function toContextItemRecord(row: ContextItemRow): ContextItemRecord {
   return {
     conversationId: row.conversation_id,
     ordinal: row.ordinal,
@@ -313,7 +314,7 @@ function toSearchResult(row: SummarySearchRow): SummarySearchResult {
   };
 }
 
-function toLargeFileRecord(row: LargeFileRow): LargeFileRecord {
+export function toLargeFileRecord(row: LargeFileRow): LargeFileRecord {
   return {
     fileId: row.file_id,
     conversationId: row.conversation_id,
@@ -507,7 +508,7 @@ export class SummaryStore {
           ? 0
           : 1;
 
-    this.db
+    (await this.db
       .prepare(
         `INSERT INTO summaries (
           summary_id,
@@ -540,16 +541,16 @@ export class SummaryStore {
         descendantTokenCount,
         sourceMessageTokenCount,
         input.model ?? "unknown",
-      );
+      ));
 
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT summary_id, conversation_id, kind, depth, content, token_count, file_ids,
                 earliest_at, latest_at, descendant_count, created_at
                 , descendant_token_count, source_message_token_count, model
        FROM summaries WHERE summary_id = ?`,
       )
-      .get(input.summaryId) as unknown as SummaryRow;
+      .get(input.summaryId)) as unknown as SummaryRow;
 
     // Index in FTS5 as best-effort; compaction flow must continue even if
     // FTS indexing fails for any reason.
@@ -558,9 +559,9 @@ export class SummaryStore {
     }
 
     try {
-      this.db
+      (await this.db
         .prepare(`INSERT INTO summaries_fts(summary_id, content) VALUES (?, ?)`)
-        .run(input.summaryId, input.content);
+        .run(input.summaryId, input.content));
     } catch {
       // FTS indexing failed — search won't find this summary but
       // compaction and assembly will still work correctly.
@@ -568,11 +569,11 @@ export class SummaryStore {
 
     // Also index into the CJK trigram FTS table for CJK substring search.
     try {
-      this.db
+      (await this.db
         .prepare(
           `INSERT INTO summaries_fts_cjk(summary_id, content) VALUES (?, ?)`,
         )
-        .run(input.summaryId, input.content);
+        .run(input.summaryId, input.content));
     } catch {
       // CJK trigram FTS table may not exist yet (pre-migration); ignore.
     }
@@ -580,15 +581,46 @@ export class SummaryStore {
     return toSummaryRecord(row);
   }
 
+  /** Immutable read view for one native compaction pass; no database transaction survives inference. */
+  async openCompactionSnapshot(conversationId:number) {
+    return isPostgresDatabase(this.db) ? loadContextSnapshot(this.db,conversationId) : undefined;
+  }
+
+  /** Capture the selected context before inference; SQLite retains its existing path. */
+  async captureContextRevision(conversationId: number, items: ContextItemRecord[]): Promise<number | null> {
+    if (!isPostgresDatabase(this.db)) return null;
+    const row = await this.db.prepare(`SELECT revision,
+      (SELECT COALESCE(jsonb_agg(jsonb_build_object('ordinal', ordinal, 'messageId', message_id, 'summaryId', summary_id) ORDER BY ordinal),'[]'::jsonb)
+       FROM context_items WHERE conversation_id = ? AND ordinal BETWEEN ? AND ?) AS items
+      FROM conversations WHERE conversation_id = ?`).get(conversationId, items[0]?.ordinal ?? 0, items.at(-1)?.ordinal ?? -1, conversationId);
+    const expected = items.map(i=>({ordinal:i.ordinal,messageId:i.messageId,summaryId:i.summaryId}));
+    const actual = row?.items as typeof expected | undefined;
+    if (!actual || actual.length !== expected.length || actual.some((r,i)=>r.ordinal!==expected[i].ordinal || r.messageId!==expected[i].messageId || r.summaryId!==expected[i].summaryId)) throw new Error("LCM context changed before inference; retry operation");
+    return row!.revision as number;
+  }
+
+  async withTransactionAtRevision<T>(conversationId: number, revision: number | null, operation: () => Promise<T>, sources?:readonly {conversationId:number;revision:number}[]): Promise<T> {
+    if (!isPostgresDatabase(this.db) || revision === null) return this.withTransaction(operation);
+    return this.withTransaction(async () => {
+      const expected=new Map((sources??[]).map(source=>[source.conversationId,source.revision]));
+      expected.set(conversationId,revision);
+      for(const [sourceId,sourceRevision] of [...expected].sort(([a],[b])=>a-b)) {
+        const result = await this.db.prepare(`UPDATE conversations SET revision = revision WHERE conversation_id = ? AND revision = ?`).run(sourceId, sourceRevision);
+        if (Number(result.changes) !== 1) throw new Error("LCM context revision conflict after inference; retry operation");
+      }
+      return operation();
+    });
+  }
+
   async getSummary(summaryId: string): Promise<SummaryRecord | null> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT summary_id, conversation_id, kind, depth, content, token_count, file_ids,
                 earliest_at, latest_at, descendant_count, created_at
                 , descendant_token_count, source_message_token_count, model
        FROM summaries WHERE summary_id = ?`,
       )
-      .get(summaryId) as unknown as SummaryRow | undefined;
+      .get(summaryId)) as unknown as SummaryRow | undefined;
     return row ? toSummaryRecord(row) : null;
   }
 
@@ -597,7 +629,7 @@ export class SummaryStore {
     // SQLite preserves CROSS JOIN order: visit this lineage before looking up its messages.
     // Reordering these joins can scan every conversation's message links once per summary,
     // blocking context assembly on synchronous database reads.
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `WITH RECURSIVE source_summaries(summary_id) AS (
            SELECT ?
@@ -613,7 +645,7 @@ export class SummaryStore {
          CROSS JOIN messages m ON m.message_id = sm.message_id
          `,
       )
-      .get(summaryId) as unknown as { min_seq: number | null; max_seq: number | null } | undefined;
+      .get(summaryId)) as unknown as { min_seq: number | null; max_seq: number | null } | undefined;
     return {
       minSeq: row?.min_seq ?? null,
       maxSeq: row?.max_seq ?? null,
@@ -621,7 +653,7 @@ export class SummaryStore {
   }
 
   async getSummariesByConversation(conversationId: number): Promise<SummaryRecord[]> {
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT summary_id, conversation_id, kind, depth, content, token_count, file_ids,
                 earliest_at, latest_at, descendant_count, created_at
@@ -630,7 +662,7 @@ export class SummaryStore {
        WHERE conversation_id = ?
        ORDER BY created_at`,
       )
-      .all(conversationId) as unknown as SummaryRow[];
+      .all(conversationId)) as unknown as SummaryRow[];
     return rows.map(toSummaryRecord);
   }
 
@@ -648,7 +680,7 @@ export class SummaryStore {
     );
 
     for (let idx = 0; idx < messageIds.length; idx++) {
-      stmt.run(summaryId, messageIds[idx], idx);
+      (await stmt.run(summaryId, messageIds[idx], idx));
     }
   }
 
@@ -664,18 +696,18 @@ export class SummaryStore {
     );
 
     for (let idx = 0; idx < parentSummaryIds.length; idx++) {
-      stmt.run(summaryId, parentSummaryIds[idx], idx);
+      (await stmt.run(summaryId, parentSummaryIds[idx], idx));
     }
   }
 
   async getSummaryMessages(summaryId: string): Promise<number[]> {
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT message_id FROM summary_messages
        WHERE summary_id = ?
        ORDER BY ordinal`,
       )
-      .all(summaryId) as unknown as MessageIdRow[];
+      .all(summaryId)) as unknown as MessageIdRow[];
     return rows.map((r) => r.message_id);
   }
 
@@ -683,13 +715,13 @@ export class SummaryStore {
    * Return the deepest persisted summary depth for a conversation.
    */
   async getConversationMaxSummaryDepth(conversationId: number): Promise<number | null> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT MAX(depth) AS max_depth
          FROM summaries
          WHERE conversation_id = ?`,
       )
-      .get(conversationId) as unknown as MaxDepthRow | undefined;
+      .get(conversationId)) as unknown as MaxDepthRow | undefined;
     return typeof row?.max_depth === "number" ? row.max_depth : null;
   }
 
@@ -712,7 +744,7 @@ export class SummaryStore {
     }
 
     const placeholders = normalizedMessageIds.map(() => "?").join(", ");
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT sm.message_id, sm.summary_id
          FROM summary_messages sm
@@ -722,7 +754,7 @@ export class SummaryStore {
            AND sm.message_id IN (${placeholders})
          ORDER BY sm.ordinal ASC, s.created_at ASC`,
       )
-      .all(conversationId, ...normalizedMessageIds) as unknown as MessageLeafSummaryLinkRow[];
+      .all(conversationId, ...normalizedMessageIds)) as unknown as MessageLeafSummaryLinkRow[];
 
     const summaryIdsByMessageId = new Map<number, string[]>();
     for (const row of rows) {
@@ -745,7 +777,7 @@ export class SummaryStore {
     return orderedLinks;
   }
   async getSummaryChildren(parentSummaryId: string): Promise<SummaryRecord[]> {
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT s.summary_id, s.conversation_id, s.kind, s.depth, s.content, s.token_count,
                 s.file_ids, s.earliest_at, s.latest_at, s.descendant_count, s.created_at
@@ -755,7 +787,7 @@ export class SummaryStore {
        WHERE sp.parent_summary_id = ?
        ORDER BY sp.ordinal`,
       )
-      .all(parentSummaryId) as unknown as SummaryRow[];
+      .all(parentSummaryId)) as unknown as SummaryRow[];
     return rows.map(toSummaryRecord);
   }
 
@@ -763,7 +795,7 @@ export class SummaryStore {
   // getSummaryParents(summaryId) returns the source summaries compacted into
   // `summaryId`. Expansion should use this direction for replay.
   async getSummaryParents(summaryId: string): Promise<SummaryRecord[]> {
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT s.summary_id, s.conversation_id, s.kind, s.depth, s.content, s.token_count,
                 s.file_ids, s.earliest_at, s.latest_at, s.descendant_count, s.created_at
@@ -773,12 +805,12 @@ export class SummaryStore {
        WHERE sp.summary_id = ?
        ORDER BY sp.ordinal`,
       )
-      .all(summaryId) as unknown as SummaryRow[];
+      .all(summaryId)) as unknown as SummaryRow[];
     return rows.map(toSummaryRecord);
   }
 
   async getSummarySubtree(summaryId: string): Promise<SummarySubtreeNodeRecord[]> {
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `WITH RECURSIVE subtree(summary_id, parent_summary_id, depth_from_root, path) AS (
            SELECT ?, NULL, 0, ''
@@ -820,7 +852,7 @@ export class SummaryStore {
          JOIN summaries s ON s.summary_id = subtree.summary_id
          ORDER BY subtree.depth_from_root ASC, subtree.path ASC, s.created_at ASC`,
       )
-      .all(summaryId) as unknown as SummarySubtreeRow[];
+      .all(summaryId)) as unknown as SummarySubtreeRow[];
 
     const seen = new Set<string>();
     const output: SummarySubtreeNodeRecord[] = [];
@@ -846,14 +878,14 @@ export class SummaryStore {
   // ── Context items ─────────────────────────────────────────────────────────
 
   async getContextItems(conversationId: number): Promise<ContextItemRecord[]> {
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT conversation_id, ordinal, item_type, message_id, summary_id, created_at
        FROM context_items
        WHERE conversation_id = ?
        ORDER BY ordinal`,
       )
-      .all(conversationId) as unknown as ContextItemRow[];
+      .all(conversationId)) as unknown as ContextItemRow[];
     return rows.map(toContextItemRecord);
   }
 
@@ -883,10 +915,10 @@ export class SummaryStore {
          ORDER BY s.depth ASC`;
 
     const rows = useOrdinalBound
-      ? (this.db
+      ? ((await this.db
           .prepare(sql)
-          .all(conversationId, Math.floor(maxOrdinalExclusive)) as unknown as DistinctDepthRow[])
-      : (this.db.prepare(sql).all(conversationId) as unknown as DistinctDepthRow[]);
+          .all(conversationId, Math.floor(maxOrdinalExclusive))) as unknown as DistinctDepthRow[])
+      : ((await this.db.prepare(sql).all(conversationId)) as unknown as DistinctDepthRow[]);
 
     return rows.map((row) => row.depth);
   }
@@ -901,26 +933,26 @@ export class SummaryStore {
       return;
     }
 
-    this.db
+    (await this.db
       .prepare(
         `DELETE FROM context_items
        WHERE conversation_id = ?
          AND item_type = 'message'`,
       )
-      .run(conversationId);
+      .run(conversationId));
 
     if (!Number.isFinite(retainDepth)) {
-      this.db
+      (await this.db
         .prepare(
           `DELETE FROM context_items
          WHERE conversation_id = ?
            AND item_type = 'summary'`,
         )
-        .run(conversationId);
+        .run(conversationId));
       return;
     }
 
-    this.db
+    (await this.db
       .prepare(
         `DELETE FROM context_items
        WHERE conversation_id = ?
@@ -932,23 +964,23 @@ export class SummaryStore {
              AND depth < ?
          )`,
       )
-      .run(conversationId, conversationId, Math.floor(retainDepth));
+      .run(conversationId, conversationId, Math.floor(retainDepth)));
   }
 
   async appendContextMessage(conversationId: number, messageId: number): Promise<void> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT COALESCE(MAX(ordinal), -1) AS max_ordinal
        FROM context_items WHERE conversation_id = ?`,
       )
-      .get(conversationId) as unknown as MaxOrdinalRow;
+      .get(conversationId)) as unknown as MaxOrdinalRow;
 
-    this.db
+    (await this.db
       .prepare(
         `INSERT INTO context_items (conversation_id, ordinal, item_type, message_id)
        VALUES (?, ?, 'message', ?)`,
       )
-      .run(conversationId, row.max_ordinal + 1, messageId);
+      .run(conversationId, row.max_ordinal + 1, messageId));
   }
 
   async appendContextMessages(conversationId: number, messageIds: number[]): Promise<void> {
@@ -956,12 +988,12 @@ export class SummaryStore {
       return;
     }
 
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT COALESCE(MAX(ordinal), -1) AS max_ordinal
        FROM context_items WHERE conversation_id = ?`,
       )
-      .get(conversationId) as unknown as MaxOrdinalRow;
+      .get(conversationId)) as unknown as MaxOrdinalRow;
     const baseOrdinal = row.max_ordinal + 1;
 
     const stmt = this.db.prepare(
@@ -969,24 +1001,24 @@ export class SummaryStore {
        VALUES (?, ?, 'message', ?)`,
     );
     for (let idx = 0; idx < messageIds.length; idx++) {
-      stmt.run(conversationId, baseOrdinal + idx, messageIds[idx]);
+      (await stmt.run(conversationId, baseOrdinal + idx, messageIds[idx]));
     }
   }
 
   async appendContextSummary(conversationId: number, summaryId: string): Promise<void> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT COALESCE(MAX(ordinal), -1) AS max_ordinal
        FROM context_items WHERE conversation_id = ?`,
       )
-      .get(conversationId) as unknown as MaxOrdinalRow;
+      .get(conversationId)) as unknown as MaxOrdinalRow;
 
-    this.db
+    (await this.db
       .prepare(
         `INSERT INTO context_items (conversation_id, ordinal, item_type, summary_id)
        VALUES (?, ?, 'summary', ?)`,
       )
-      .run(conversationId, row.max_ordinal + 1, summaryId);
+      .run(conversationId, row.max_ordinal + 1, summaryId));
   }
 
   async replaceContextRangeWithSummary(input: {
@@ -995,8 +1027,8 @@ export class SummaryStore {
     endOrdinal: number;
     summaryId: string;
   }): Promise<void> {
-    await this.withTransaction(() => {
-      this.replaceContextRangeWithSummaryInTransaction(input);
+    await this.withTransaction(async () => {
+      (await this.replaceContextRangeWithSummaryInTransaction(input));
     });
   }
 
@@ -1008,19 +1040,19 @@ export class SummaryStore {
       summaryId: string;
     }>;
   }): Promise<void> {
-    await this.withTransaction(() => {
-      this.replaceContextRangesWithSummariesInTransaction(input);
+    await this.withTransaction(async () => {
+      (await this.replaceContextRangesWithSummariesInTransaction(input));
     });
   }
 
   // Update the context slice in-place while the caller already owns the txn.
-  private replaceContextRangeWithSummaryInTransaction(input: {
+  private async replaceContextRangeWithSummaryInTransaction(input: {
     conversationId: number;
     startOrdinal: number;
     endOrdinal: number;
     summaryId: string;
-  }): void {
-    this.replaceContextRangesWithSummariesInTransaction({
+  }): Promise<void> {
+    (await this.replaceContextRangesWithSummariesInTransaction({
       conversationId: input.conversationId,
       replacements: [
         {
@@ -1029,17 +1061,17 @@ export class SummaryStore {
           summaryId: input.summaryId,
         },
       ],
-    });
+    }));
   }
 
-  private replaceContextRangesWithSummariesInTransaction(input: {
+  private async replaceContextRangesWithSummariesInTransaction(input: {
     conversationId: number;
     replacements: Array<{
       startOrdinal: number;
       endOrdinal: number;
       summaryId: string;
     }>;
-  }): void {
+  }): Promise<void> {
     const { conversationId } = input;
     const replacements = [...input.replacements].sort((a, b) => a.startOrdinal - b.startOrdinal);
     let previousEndOrdinal = -1;
@@ -1063,7 +1095,7 @@ export class SummaryStore {
          AND ordinal <= ?`,
     );
     for (const replacement of replacements) {
-      deleteStmt.run(conversationId, replacement.startOrdinal, replacement.endOrdinal);
+      (await deleteStmt.run(conversationId, replacement.startOrdinal, replacement.endOrdinal));
     }
 
     // 2. Insert replacement summary items at their original start ordinals.
@@ -1072,23 +1104,23 @@ export class SummaryStore {
        VALUES (?, ?, 'summary', ?)`,
     );
     for (const replacement of replacements) {
-      insertStmt.run(conversationId, replacement.startOrdinal, replacement.summaryId);
+      (await insertStmt.run(conversationId, replacement.startOrdinal, replacement.summaryId));
     }
 
     // 3. Resequence all ordinals to maintain contiguity (no gaps).
-    this.resequenceContextItemsInTransaction(conversationId);
+    (await this.resequenceContextItemsInTransaction(conversationId));
   }
 
-  private resequenceContextItemsInTransaction(conversationId: number): void {
+  private async resequenceContextItemsInTransaction(conversationId: number): Promise<void> {
     // Pre-compute ranks from a SELECT, then apply a 2-pass UPDATE loop using
     // negative temps to avoid UNIQUE constraint violations.
-    const items = this.db
+    const items = (await this.db
       .prepare(
         `SELECT ordinal FROM context_items
          WHERE conversation_id = ?
          ORDER BY ordinal`,
       )
-      .all(conversationId) as unknown as { ordinal: number }[];
+      .all(conversationId)) as unknown as { ordinal: number }[];
 
     if (items.length > 0 && items.some((item, i) => item.ordinal !== i)) {
       const updateStmt = this.db.prepare(
@@ -1096,16 +1128,16 @@ export class SummaryStore {
          WHERE conversation_id = ? AND ordinal = ?`,
       );
       for (let i = 0; i < items.length; i++) {
-        updateStmt.run(-(i + 1), conversationId, items[i].ordinal);
+        (await updateStmt.run(-(i + 1), conversationId, items[i].ordinal));
       }
       for (let i = 0; i < items.length; i++) {
-        updateStmt.run(i, conversationId, -(i + 1));
+        (await updateStmt.run(i, conversationId, -(i + 1)));
       }
     }
   }
 
   async getContextTokenCount(conversationId: number): Promise<number> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT COALESCE(SUM(token_count), 0) AS total
        FROM (
@@ -1124,7 +1156,7 @@ export class SummaryStore {
            AND ci.item_type = 'summary'
        ) sub`,
       )
-      .get(conversationId, conversationId) as unknown as TokenSumRow;
+      .get(conversationId, conversationId)) as unknown as TokenSumRow;
     return row?.total ?? 0;
   }
 
@@ -1143,7 +1175,7 @@ export class SummaryStore {
         const hasShortCjkSegment = cjkSegments.some((segment) => segment.length < 3);
         if (!hasShortCjkSegment) {
           try {
-            const trigramResults = this.searchCjkTrigram(
+            const trigramResults = (await this.searchCjkTrigram(
               input.query,
               limit,
               input.conversationId,
@@ -1151,7 +1183,7 @@ export class SummaryStore {
               input.since,
               input.before,
               input.sort,
-            );
+            ));
             if (trigramResults.length > 0) {
               return trigramResults;
             }
@@ -1159,18 +1191,18 @@ export class SummaryStore {
             // trigram table may not exist; fall through to LIKE OR
           }
         }
-        return this.searchLikeCjk(
+        return (await this.searchLikeCjk(
           input.query,
           limit,
           input.conversationId,
           input.conversationIds,
           input.since,
           input.before,
-        );
+        ));
       }
       if (this.fts5Available) {
         try {
-          return this.searchFullText(
+          return (await this.searchFullText(
             input.query,
             limit,
             input.conversationId,
@@ -1178,38 +1210,38 @@ export class SummaryStore {
             input.since,
             input.before,
             input.sort,
-          );
+          ));
         } catch {
-          return this.searchLike(
+          return (await this.searchLike(
             input.query,
             limit,
             input.conversationId,
             input.conversationIds,
             input.since,
             input.before,
-          );
+          ));
         }
       }
-      return this.searchLike(
+      return (await this.searchLike(
         input.query,
         limit,
         input.conversationId,
         input.conversationIds,
         input.since,
         input.before,
-      );
+      ));
     }
-    return this.searchRegex(
+    return (await this.searchRegex(
       input.query,
       limit,
       input.conversationId,
       input.conversationIds,
       input.since,
       input.before,
-    );
+    ));
   }
 
-  private searchFullText(
+  private async searchFullText(
     query: string,
     limit: number,
     conversationId?: number,
@@ -1217,7 +1249,7 @@ export class SummaryStore {
     since?: Date,
     before?: Date,
     sort?: SearchSort,
-  ): SummarySearchResult[] {
+  ): Promise<SummarySearchResult[]> {
     const where: string[] = ["summaries_fts MATCH ?"];
     const args: Array<string | number> = [sanitizeFts5Query(query)];
     appendConversationScopeConstraint({
@@ -1250,18 +1282,18 @@ export class SummaryStore {
        WHERE ${where.join(" AND ")}
        ORDER BY ${orderBy}
        LIMIT ?`;
-    const rows = this.db.prepare(sql).all(...args) as unknown as SummarySearchRow[];
+    const rows = (await this.db.prepare(sql).all(...args)) as unknown as SummarySearchRow[];
     return rows.map(toSearchResult);
   }
 
-  private searchLike(
+  private async searchLike(
     query: string,
     limit: number,
     conversationId?: number,
     conversationIds?: number[],
     since?: Date,
     before?: Date,
-  ): SummarySearchResult[] {
+  ): Promise<SummarySearchResult[]> {
     const plan = buildLikeSearchPlan("content", query);
     if (plan.terms.length === 0) {
       return [];
@@ -1287,7 +1319,7 @@ export class SummaryStore {
     args.push(limit);
 
     const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT summary_id, conversation_id, kind, depth, content, token_count, file_ids,
                 earliest_at, latest_at, descendant_count, descendant_token_count,
@@ -1298,7 +1330,7 @@ export class SummaryStore {
          ORDER BY ${SUMMARY_SEARCH_TIME_EXPR_UNQUALIFIED} DESC
          LIMIT ?`,
       )
-      .all(...args) as unknown as SummaryRow[];
+      .all(...args)) as unknown as SummaryRow[];
 
     return rows.map((row) => ({
       summaryId: row.summary_id,
@@ -1345,7 +1377,7 @@ export class SummaryStore {
     return chunks;
   }
 
-  private searchCjkTrigram(
+  private async searchCjkTrigram(
     query: string,
     limit: number,
     conversationId?: number,
@@ -1353,7 +1385,7 @@ export class SummaryStore {
     since?: Date,
     before?: Date,
     sort?: SearchSort,
-  ): SummarySearchResult[] {
+  ): Promise<SummarySearchResult[]> {
     const cjkSegments = this.extractCjkSegments(query).filter((segment) => segment.length >= 3);
     if (cjkSegments.length === 0) {
       return [];
@@ -1408,7 +1440,7 @@ export class SummaryStore {
        WHERE ${where.join(" AND ")}
        ORDER BY ${orderBy}
        LIMIT ?`;
-    const rows = this.db.prepare(sql).all(...args) as unknown as SummarySearchRow[];
+    const rows = (await this.db.prepare(sql).all(...args)) as unknown as SummarySearchRow[];
     return rows.map(toSearchResult);
   }
 
@@ -1418,14 +1450,14 @@ export class SummaryStore {
   // segment are ORed together, but each segment and Latin token still has to
   // match so mixed queries keep full-intent semantics.
 
-  private searchLikeCjk(
+  private async searchLikeCjk(
     query: string,
     limit: number,
     conversationId?: number,
     conversationIds?: number[],
     since?: Date,
     before?: Date,
-  ): SummarySearchResult[] {
+  ): Promise<SummarySearchResult[]> {
     const cjkSegments = this.extractCjkSegments(query);
     const latinTokens = this.extractLatinTokens(query);
     if (cjkSegments.length === 0 && latinTokens.length === 0) {
@@ -1474,7 +1506,7 @@ export class SummaryStore {
     }
     args.push(limit);
 
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT summary_id, conversation_id, kind, depth, content, token_count, file_ids,
                 earliest_at, latest_at, descendant_count, descendant_token_count,
@@ -1485,7 +1517,7 @@ export class SummaryStore {
          ORDER BY ${SUMMARY_SEARCH_TIME_EXPR_UNQUALIFIED} DESC
          LIMIT ?`,
       )
-      .all(...args) as unknown as SummaryRow[];
+      .all(...args)) as unknown as SummaryRow[];
 
     const snippetTerms = cjkTerms.length > 0 ? [...new Set([...cjkTerms, ...latinTokens])] : latinTokens;
     return rows.map((row) => ({
@@ -1498,14 +1530,14 @@ export class SummaryStore {
     }));
   }
 
-  private searchRegex(
+  private async searchRegex(
     pattern: string,
     limit: number,
     conversationId?: number,
     conversationIds?: number[],
     since?: Date,
     before?: Date,
-  ): SummarySearchResult[] {
+  ): Promise<SummarySearchResult[]> {
     const re = compileSafeSearchRegex(pattern);
     if (!re) {
       return [];
@@ -1529,7 +1561,7 @@ export class SummaryStore {
       args.push(before.toISOString());
     }
     const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT summary_id, conversation_id, kind, depth, content, token_count, file_ids,
                 earliest_at, latest_at, descendant_count, descendant_token_count,
@@ -1539,7 +1571,7 @@ export class SummaryStore {
          ${whereClause}
          ORDER BY ${SUMMARY_SEARCH_TIME_EXPR_UNQUALIFIED} DESC`,
       )
-      .all(...args) as unknown as SummaryRow[];
+      .all(...args)) as unknown as SummaryRow[];
 
     const MAX_ROW_SCAN = 10_000;
     const results: SummarySearchResult[] = [];
@@ -1567,7 +1599,7 @@ export class SummaryStore {
   // ── Large files ───────────────────────────────────────────────────────────
 
   async insertLargeFile(input: CreateLargeFileInput): Promise<LargeFileRecord> {
-    this.db
+    (await this.db
       .prepare(
         `INSERT INTO large_files (file_id, conversation_id, file_name, mime_type, byte_size, line_count, storage_uri, exploration_summary)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1581,48 +1613,48 @@ export class SummaryStore {
         input.lineCount ?? null,
         input.storageUri,
         input.explorationSummary ?? null,
-      );
+      ));
 
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT file_id, conversation_id, file_name, mime_type, byte_size, line_count, storage_uri, exploration_summary, created_at
        FROM large_files WHERE file_id = ?`,
       )
-      .get(input.fileId) as unknown as LargeFileRow;
+      .get(input.fileId)) as unknown as LargeFileRow;
 
     return toLargeFileRecord(row);
   }
 
   async getLargeFile(fileId: string): Promise<LargeFileRecord | null> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT file_id, conversation_id, file_name, mime_type, byte_size, line_count, storage_uri, exploration_summary, created_at
        FROM large_files WHERE file_id = ?`,
       )
-      .get(fileId) as unknown as LargeFileRow | undefined;
+      .get(fileId)) as unknown as LargeFileRow | undefined;
     return row ? toLargeFileRecord(row) : null;
   }
 
   async getLargeFilesByConversation(conversationId: number): Promise<LargeFileRecord[]> {
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT file_id, conversation_id, file_name, mime_type, byte_size, line_count, storage_uri, exploration_summary, created_at
        FROM large_files
        WHERE conversation_id = ?
        ORDER BY created_at DESC`,
       )
-      .all(conversationId) as unknown as LargeFileRow[];
+      .all(conversationId)) as unknown as LargeFileRow[];
     return rows.map(toLargeFileRecord);
   }
 
   async getAllLargeFiles(): Promise<LargeFileRecord[]> {
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT file_id, conversation_id, file_name, mime_type, byte_size, line_count, storage_uri, exploration_summary, created_at
        FROM large_files
        ORDER BY created_at DESC`,
       )
-      .all() as unknown as LargeFileRow[];
+      .all()) as unknown as LargeFileRow[];
     return rows.map(toLargeFileRecord);
   }
 
@@ -1737,7 +1769,7 @@ export class SummaryStore {
     options: LargeFileReadOptions,
   ): Promise<boolean> {
     const byteSize = content.byteLength;
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT storage_uri
        FROM large_files
@@ -1745,7 +1777,7 @@ export class SummaryStore {
          AND byte_size = ?
        LIMIT 1`,
       )
-      .get(fileId, byteSize) as { storage_uri: string } | undefined;
+      .get(fileId, byteSize)) as { storage_uri: string } | undefined;
     if (!row) {
       return false;
     }
@@ -1758,14 +1790,14 @@ export class SummaryStore {
     fileId: string,
     options: LargeFileReadOptions,
   ): Promise<string | null> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT storage_uri
        FROM large_files
        WHERE file_id = ?
        LIMIT 1`,
       )
-      .get(fileId) as { storage_uri: string } | undefined;
+      .get(fileId)) as { storage_uri: string } | undefined;
     if (!row) {
       return null;
     }

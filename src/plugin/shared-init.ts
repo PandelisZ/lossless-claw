@@ -17,6 +17,12 @@ import type { DatabaseSync } from "node:sqlite";
 import type { LcmContextEngine } from "../engine.js";
 
 export type SharedLcmInit = {
+  storageBackend?: "sqlite" | "postgres";
+  close?: () => Promise<void>;
+  restart?: () => Promise<void>;
+  waitForPostgresDatabase?: (actor?:Parameters<LcmContextEngine["assertStorageAuthority"]>[0]) => Promise<import("../db/storage.js").AsyncStorageDatabase>;
+  waitForScopedEngine?: (actor:Parameters<LcmContextEngine["assertStorageAuthority"]>[0])=>Promise<LcmContextEngine>;
+  waitForContextEngine?: ()=>Promise<import("../openclaw-bridge.js").ContextEngine>;
   /** Whether gateway_stop has been called. */
   stopped: boolean;
   /** Sync accessor — returns the engine if already initialized, null otherwise. */

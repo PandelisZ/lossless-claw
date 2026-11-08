@@ -650,6 +650,7 @@ Bug reports and feature requests belong in
 
 ## Experimental PostgreSQL development
 
-An opt-in, development-only [PostgreSQL store prototype](experiments/postgres/README.md)
-contains real database contracts and native assembler/compactor parity tests. It
-is not registered as an engine backend; SQLite remains the unchanged default.
+The fork includes an explicit opt-in [native PostgreSQL engine](docs/postgres.md),
+with asynchronous core and auxiliary stores and gateway registration. SQLite
+remains the default. The [frozen standalone comparison](experiments/postgres/README.md)
+retains the original baseline and evidence; it is separate from native engine qualification.

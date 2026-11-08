@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
+import type { StorageDatabase as DatabaseSync } from "../db/storage.js";
 import { withDatabaseTransaction } from "../transaction-mutex.js";
 import { parseUtcTimestampOrNull } from "./parse-utc-timestamp.js";
 
@@ -131,7 +131,7 @@ type CountAndTokenRow = {
   tokens: number;
 };
 
-function toFocusBriefRecord(row: FocusBriefRow): FocusBriefRecord {
+export function toFocusBriefRecord(row: FocusBriefRow): FocusBriefRecord {
   return {
     briefId: row.brief_id,
     conversationId: row.conversation_id,
@@ -220,7 +220,7 @@ export class FocusBriefStore {
 
   /** Return active summary context items for a conversation in assembly order. */
   async getActiveContextSummaries(conversationId: number): Promise<ActiveFocusSummaryRecord[]> {
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT
            ci.ordinal,
@@ -241,7 +241,7 @@ export class FocusBriefStore {
          GROUP BY ci.ordinal, s.summary_id
          ORDER BY ci.ordinal`,
       )
-      .all(conversationId) as ActiveFocusSummaryRow[];
+      .all(conversationId)) as ActiveFocusSummaryRow[];
     return rows.map(toActiveFocusSummaryRecord);
   }
 
@@ -250,7 +250,7 @@ export class FocusBriefStore {
     coveredLatestAt: string | null;
     coveredMessageSeq: number | null;
   }> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `WITH RECURSIVE covered(summary_id) AS (
            SELECT ci.summary_id
@@ -271,7 +271,7 @@ export class FocusBriefStore {
          LEFT JOIN summary_messages sm ON sm.summary_id = s.summary_id
          LEFT JOIN messages m ON m.message_id = sm.message_id`,
       )
-      .get(conversationId) as
+      .get(conversationId)) as
       | { covered_latest_at: string | null; covered_message_seq: number | null }
       | undefined;
     return {
@@ -283,9 +283,9 @@ export class FocusBriefStore {
   /** Persist one focus brief and its source summary roles. */
   async createFocusBrief(input: CreateFocusBriefInput): Promise<FocusBriefRecord> {
     const briefId = createFocusBriefId();
-    await this.withTransaction(() => {
+    await this.withTransaction(async () => {
       if (input.supersedeCurrentDrafts === true) {
-        this.db
+        (await this.db
           .prepare(
             `UPDATE focus_briefs
              SET status = 'superseded',
@@ -294,10 +294,10 @@ export class FocusBriefStore {
              WHERE conversation_id = ?
                AND status IN ('draft', 'active')`,
           )
-          .run(input.conversationId);
+          .run(input.conversationId));
       }
 
-      this.db
+      (await this.db
         .prepare(
           `INSERT INTO focus_briefs (
              brief_id,
@@ -333,7 +333,7 @@ export class FocusBriefStore {
           input.generatorSessionKey ?? null,
           input.rawResultJson ?? null,
           input.error ?? null,
-        );
+        ));
 
       const stmt = this.db.prepare(
         `INSERT INTO focus_brief_sources (brief_id, summary_id, ordinal, role)
@@ -342,7 +342,7 @@ export class FocusBriefStore {
            ordinal = excluded.ordinal`,
       );
       for (const source of input.sources ?? []) {
-        stmt.run(briefId, source.summaryId, source.ordinal ?? null, source.role);
+        (await stmt.run(briefId, source.summaryId, source.ordinal ?? null, source.role));
       }
     });
 
@@ -355,7 +355,7 @@ export class FocusBriefStore {
 
   /** Load a focus brief by ID. */
   async getFocusBrief(briefId: string): Promise<FocusBriefRecord | null> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT
            brief_id,
@@ -379,13 +379,13 @@ export class FocusBriefStore {
          FROM focus_briefs
          WHERE brief_id = ?`,
       )
-      .get(briefId) as FocusBriefRow | undefined;
+      .get(briefId)) as FocusBriefRow | undefined;
     return row ? toFocusBriefRecord(row) : null;
   }
 
   /** Load the newest focus brief record for a conversation. */
   async getLatestFocusBrief(conversationId: number): Promise<FocusBriefRecord | null> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT
            brief_id,
@@ -411,13 +411,13 @@ export class FocusBriefStore {
 	         ORDER BY created_at DESC, rowid DESC
 	         LIMIT 1`,
       )
-      .get(conversationId) as FocusBriefRow | undefined;
+      .get(conversationId)) as FocusBriefRow | undefined;
     return row ? toFocusBriefRecord(row) : null;
   }
 
   /** Load the current active focus overlay for a conversation, if one exists. */
   async getActiveFocusBrief(conversationId: number): Promise<FocusBriefRecord | null> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT
            brief_id,
@@ -444,14 +444,14 @@ export class FocusBriefStore {
          ORDER BY created_at DESC, rowid DESC
          LIMIT 1`,
       )
-      .get(conversationId) as FocusBriefRow | undefined;
+      .get(conversationId)) as FocusBriefRow | undefined;
     return row ? toFocusBriefRecord(row) : null;
   }
 
   /** Deactivate active focus overlays for a conversation without deleting history. */
   async deactivateActiveFocusBriefs(conversationId: number): Promise<number> {
-    const result = await this.withTransaction(() =>
-      this.db
+    const result = await this.withTransaction(async () =>
+      (await this.db
         .prepare(
           `UPDATE focus_briefs
            SET status = 'inactive',
@@ -459,14 +459,14 @@ export class FocusBriefStore {
            WHERE conversation_id = ?
              AND status = 'active'`,
         )
-        .run(conversationId),
+        .run(conversationId)),
     );
     return Number(result.changes ?? 0);
   }
 
   /** List recent focus briefs for a conversation, newest first. */
   async listFocusBriefs(conversationId: number, limit = 20): Promise<FocusBriefRecord[]> {
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT
            brief_id,
@@ -492,20 +492,20 @@ export class FocusBriefStore {
 	         ORDER BY created_at DESC, rowid DESC
 	         LIMIT ?`,
       )
-      .all(conversationId, Math.max(1, Math.floor(limit))) as FocusBriefRow[];
+      .all(conversationId, Math.max(1, Math.floor(limit)))) as FocusBriefRow[];
     return rows.map(toFocusBriefRecord);
   }
 
   /** Return summary source/citation rows recorded for a focus brief. */
   async getFocusBriefSources(briefId: string): Promise<FocusBriefSourceRecord[]> {
-    const rows = this.db
+    const rows = (await this.db
       .prepare(
         `SELECT brief_id, summary_id, ordinal, role, created_at
          FROM focus_brief_sources
          WHERE brief_id = ?
          ORDER BY role, ordinal, summary_id`,
       )
-      .all(briefId) as FocusBriefSourceRow[];
+      .all(briefId)) as FocusBriefSourceRow[];
     return rows.map(toFocusBriefSourceRecord);
   }
 
@@ -514,14 +514,14 @@ export class FocusBriefStore {
     let postFocusMessageCount = 0;
     let postFocusMessageTokens = 0;
     if (brief.coveredMessageSeq !== null) {
-      const row = this.db
+      const row = (await this.db
         .prepare(
           `SELECT COUNT(*) AS count, COALESCE(SUM(token_count), 0) AS tokens
            FROM messages
            WHERE conversation_id = ?
              AND seq > ?`,
         )
-        .get(brief.conversationId, brief.coveredMessageSeq) as CountAndTokenRow | undefined;
+        .get(brief.conversationId, brief.coveredMessageSeq)) as CountAndTokenRow | undefined;
       postFocusMessageCount = Math.max(0, Math.floor(row?.count ?? 0));
       postFocusMessageTokens = Math.max(0, Math.floor(row?.tokens ?? 0));
     }
@@ -533,14 +533,14 @@ export class FocusBriefStore {
       brief.coveredLatestAt !== null
         ? "latest_at IS NOT NULL AND datetime(latest_at) > datetime(?)"
         : "datetime(created_at) > datetime(?)";
-    const summaryRow = this.db
+    const summaryRow = (await this.db
       .prepare(
         `SELECT COUNT(*) AS count, COALESCE(SUM(token_count), 0) AS tokens
          FROM summaries
          WHERE conversation_id = ?
            AND ${summaryPredicate}`,
       )
-      .get(brief.conversationId, summaryWatermark) as CountAndTokenRow | undefined;
+      .get(brief.conversationId, summaryWatermark)) as CountAndTokenRow | undefined;
     postFocusSummaryCount = Math.max(0, Math.floor(summaryRow?.count ?? 0));
     postFocusSummaryTokens = Math.max(0, Math.floor(summaryRow?.tokens ?? 0));
 

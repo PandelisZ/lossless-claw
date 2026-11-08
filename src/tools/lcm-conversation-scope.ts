@@ -117,20 +117,20 @@ export async function resolveLcmConversationScope(input: {
       : undefined;
 
   if (isDelegatedSession) {
-    const delegatedGrantId = resolveDelegatedExpansionGrantId(normalizedSessionKey!);
+    const delegatedGrantId = (await resolveDelegatedExpansionGrantId(normalizedSessionKey!));
     const authManager = getRuntimeExpansionAuthManager();
     const delegatedGrant =
       delegatedGrantId != null
-        ? authManager.getGrant(delegatedGrantId)
+        ? (await authManager.getGrant(delegatedGrantId))
         : null;
     if (!delegatedGrant) {
       if (delegatedGrantId) {
-        const validation = authManager.validateExpansion(delegatedGrantId, {
+        const validation = (await authManager.validateExpansion(delegatedGrantId, {
           conversationId: explicitConversationId ?? 0,
           summaryIds: [],
           depth: 1,
           tokenCap: 1,
-        });
+        }));
         return {
           allConversations: false,
           delegated: true,

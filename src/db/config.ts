@@ -89,6 +89,12 @@ export type LcmConfig = {
    */
   hostFallbackMode: "error" | "capture-only";
   databasePath: string;
+  /** Experimental remote store; SQLite remains the default. */
+  storageBackend?: "sqlite" | "postgres";
+  postgresSchema?: string;
+  postgresOrganizationId?: string;
+  postgresAgentId?: string;
+  postgresSchemas?: Record<string,string>;
   /** Directory for persisting large-file text payloads. */
   largeFilesDir: string;
   /** Glob patterns for session keys to exclude from LCM storage entirely. */
@@ -673,6 +679,21 @@ export function resolveLcmConfigWithDiagnostics(
       hostFallbackMode: (() => {
         const raw = env.LCM_HOST_FALLBACK_MODE?.trim() || toStr(pc.hostFallbackMode) || "";
         return raw === "capture-only" ? "capture-only" : "error";
+      })(),
+      storageBackend: (() => {
+        const backend = env.LCM_STORAGE_BACKEND ?? toStr(pc.storageBackend) ?? "sqlite";
+        if (backend !== "sqlite" && backend !== "postgres") throw new Error("Unsupported LCM storageBackend");
+        return backend;
+      })(),
+      postgresSchema: env.LCM_POSTGRES_SCHEMA ?? toStr(pc.postgresSchema),
+      postgresOrganizationId: env.LCM_POSTGRES_ORGANIZATION_ID ?? toStr(pc.postgresOrganizationId),
+      postgresAgentId: env.LCM_POSTGRES_AGENT_ID ?? toStr(pc.postgresAgentId),
+      postgresSchemas: (()=>{
+        let value:unknown=pc.postgresSchemas;
+        if(env.LCM_POSTGRES_SCHEMAS!==undefined)try{value=JSON.parse(env.LCM_POSTGRES_SCHEMAS);}catch{throw new Error("LCM_POSTGRES_SCHEMAS must be an agent-to-schema JSON object");}
+        if(value===undefined)return undefined;
+        if(!value||typeof value!=="object"||Array.isArray(value)||Object.values(value).some(v=>typeof v!=="string"))throw new Error("postgresSchemas must map agent IDs to schema names");
+        return value as Record<string,string>;
       })(),
       databasePath:
         env.LCM_DATABASE_PATH

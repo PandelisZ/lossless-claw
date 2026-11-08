@@ -1,4 +1,4 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { StorageDatabase as DatabaseSync } from "../db/storage.js";
 import { withDatabaseTransaction } from "../transaction-mutex.js";
 import { parseUtcTimestampOrNull } from "./parse-utc-timestamp.js";
 
@@ -108,7 +108,7 @@ export class CompactionTelemetryStore {
   async getConversationCompactionTelemetry(
     conversationId: number,
   ): Promise<ConversationCompactionTelemetryRecord | null> {
-    const row = this.db
+    const row = (await this.db
       .prepare(
         `SELECT
            conversation_id,
@@ -132,7 +132,7 @@ export class CompactionTelemetryStore {
          FROM conversation_compaction_telemetry
          WHERE conversation_id = ?`,
       )
-      .get(conversationId) as ConversationCompactionTelemetryRow | undefined;
+      .get(conversationId)) as ConversationCompactionTelemetryRow | undefined;
     return row ? toConversationCompactionTelemetryRecord(row) : null;
   }
 
@@ -140,7 +140,7 @@ export class CompactionTelemetryStore {
   async upsertConversationCompactionTelemetry(
     input: UpsertConversationCompactionTelemetryInput,
   ): Promise<void> {
-    this.db
+    (await this.db
       .prepare(
         `INSERT INTO conversation_compaction_telemetry (
            conversation_id,
@@ -199,6 +199,6 @@ export class CompactionTelemetryStore {
         input.lastCacheTouchAt?.toISOString() ?? null,
         input.provider ?? null,
         input.model ?? null,
-      );
+      ));
   }
 }

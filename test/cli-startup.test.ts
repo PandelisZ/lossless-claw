@@ -21,29 +21,29 @@ afterAll(() => {
   rmSync(directory, { recursive: true, force: true });
 });
 
-function invoke(args: string[]): { exitCode: number; stdout: string; stderr: string } {
+async function invoke(args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   let stdout = "";
   let stderr = "";
-  const exitCode = runCli(args, {
+  const exitCode = (await runCli(args, {
     env: { HOME: directory, OPENCLAW_CONFIG_PATH: configPath },
     stdout: (text) => { stdout += text; },
     stderr: (text) => { stderr += text; },
-  });
+  }));
   return { exitCode, stdout, stderr };
 }
 
 describe("CLI startup without a packaged manifest", () => {
-  it("keeps commands that do not write config available", () => {
-    const result = invoke(["--help"]);
+  it("keeps commands that do not write config available", async () => {
+    const result = (await invoke(["--help"]));
 
     expect(result).toMatchObject({ exitCode: 0, stderr: "" });
     expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, command: "help" });
   });
 
-  it("reports config schema discovery failures as structured errors", () => {
+  it("reports config schema discovery failures as structured errors", async () => {
     writeFileSync(configPath, "{}\n", { mode: 0o600 });
 
-    const result = invoke(["config", "set", "freshTailCount", "20"]);
+    const result = (await invoke(["config", "set", "freshTailCount", "20"]));
 
     expect(result).toMatchObject({ exitCode: 4, stdout: "" });
     expect(JSON.parse(result.stderr)).toEqual({

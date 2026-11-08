@@ -1,6 +1,8 @@
+import { ExpansionAuthManager, withExpansionAuthManager } from "./expansion-auth.js";
+import { loadContextSnapshot } from "./db/postgres/context-snapshot.js";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import type { DatabaseSync } from "node:sqlite";
+import { isPostgresDatabase, type StorageDatabase as DatabaseSync } from "./db/storage.js";
 import packageJson from "../package.json" with { type: "json" };
 import type {
   ContextEngine,
@@ -483,6 +485,7 @@ export class LcmContextEngine implements ContextEngine {
   private compaction: CompactionEngine;
   private retrieval: RetrievalEngine;
   private readonly db: DatabaseSync;
+  private readonly postgresExpansionAuth?: ExpansionAuthManager;
   private migrated = false;
   private readonly fts5Available: boolean = false;
   private readonly ignoreSessionPatterns: RegExp[];
@@ -522,19 +525,26 @@ export class LcmContextEngine implements ContextEngine {
     this.ignoreSessionPatterns = compileSessionPatterns(this.config.ignoreSessionPatterns);
     this.statelessSessionPatterns = compileSessionPatterns(this.config.statelessSessionPatterns);
     this.db = database;
+    if (isPostgresDatabase(database) && !database.ready) throw new Error("LCM PostgreSQL import must be complete before engine activation");
+    if (isPostgresDatabase(database)) this.postgresExpansionAuth = new ExpansionAuthManager(database);
 
     // Run migrations eagerly at construction time so the schema exists
     // before any lifecycle hook fires.
     let migrationOk = false;
     const migrationStartedAt = Date.now();
     try {
-      runLcmMigrations(this.db, {
+      if (isPostgresDatabase(database)) {
+        if (!database.ready) throw new Error("PostgreSQL migrations must finish before engine creation");
+        this.migrated = true;
+        migrationOk = true;
+      } else {
+      runLcmMigrations(database, {
         log: this.deps.log,
       });
       this.migrated = true;
 
       // Verify tables were actually created
-      const tables = this.db
+      const tables = database
         .prepare("SELECT name FROM sqlite_master WHERE type='table'")
         .all() as Array<{ name: string }>;
       if (tables.length === 0) {
@@ -550,13 +560,14 @@ export class LcmContextEngine implements ContextEngine {
           `[lcm] Migration successful — ${tables.length} tables: ${tables.map((t) => t.name).join(", ")}`,
         );
       }
+      }
     } catch (err) {
       this.deps.log.error(
         `[lcm] Migration failed after ${formatDurationMs(Date.now() - migrationStartedAt)}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
 
-    this.fts5Available = getLcmDbFeatures(this.db).fts5Available;
+    this.fts5Available = isPostgresDatabase(database) || getLcmDbFeatures(database).fts5Available;
 
     // Only claim ownership of compaction when the DB is operational.
     // Without a working schema, ownsCompaction would disable the runtime's
@@ -743,6 +754,24 @@ export class LcmContextEngine implements ContextEngine {
    * documented in terms of session keys, but we fall back to sessionId for
    * older call sites that may not provide the key yet.
    */
+  get configuredPostgresAgentId():string|undefined {return isPostgresDatabase(this.db)?this.db.agentId:undefined;}
+
+  withStorageAuthority<T>(operation: () => T): T {
+    return this.postgresExpansionAuth ? withExpansionAuthManager(this.postgresExpansionAuth, operation) : operation();
+  }
+
+  assertStorageAuthority(params: {
+    sessionKey?:string; agentId?:string; parentSessionKey?:string; childSessionKey?:string; nextSessionKey?:string;
+    sessionTarget?:{agentId?:string;sessionKey?:string};
+    admission?:{agentId?:string;sessionKey?:string}; terminal?:{agentId?:string;sessionKey?:string};
+  }): void {
+    if(!isPostgresDatabase(this.db)) return;
+    const agentId=this.db.agentId;
+    const identities=[params,params.sessionTarget,params.admission,params.terminal];
+    const keys=[params.parentSessionKey,params.childSessionKey,params.nextSessionKey,...identities.map(i=>i?.sessionKey)];
+    if(identities.some(i=>i?.agentId && i.agentId!==agentId) || keys.some(key=>key && !key.startsWith(`agent:${agentId}:`))) throw new Error("LCM request outside PostgreSQL agent authority");
+  }
+
   private shouldIgnoreSession(params: { sessionId?: string; sessionKey?: string }): boolean {
     if (this.ignoreSessionPatterns.length === 0) {
       return false;
@@ -788,6 +817,7 @@ export class LcmContextEngine implements ContextEngine {
     }
     const migrationStartedAt = Date.now();
     this.deps.log.debug("[lcm] ensureMigrated: running migrations lazily");
+    if (isPostgresDatabase(this.db)) throw new Error("PostgreSQL schema not initialized");
     runLcmMigrations(this.db, {
       log: this.deps.log,
     });
@@ -1810,7 +1840,7 @@ export class LcmContextEngine implements ContextEngine {
               result: lastResult,
             };
           }
-          const runLegacyCompaction = () => this.executeCompactionCore({
+          const runLegacyCompaction = async () => this.executeCompactionCore({
             conversationId: params.conversationId,
             sessionId: params.sessionId,
             sessionKey: params.sessionKey,
@@ -2856,7 +2886,7 @@ export class LcmContextEngine implements ContextEngine {
     const sync = this.requireTranscriptDeltaSync();
     const conversationId = params.conversation.conversationId;
     const request = this.buildTranscriptSyncRequest({ ...params, conversationId });
-    const state = this.transcriptCursorStore.get(conversationId);
+    const state = (await this.transcriptCursorStore.get(conversationId));
     let outcome: TranscriptSyncOutcome;
     if (state) {
       const startedAt = Date.now();
@@ -3168,7 +3198,7 @@ export class LcmContextEngine implements ContextEngine {
     return this.withSessionQueue(
       this.resolveSessionQueueKey(sessionId, sessionKey),
       async () => {
-        if (this.findTurnAdvancementReceipt(params, payloadHash)) {
+        if (await this.findTurnAdvancementReceipt(params, payloadHash)) {
           return { status: "duplicate" as const };
         }
         const conversation = await this.conversationStore.getOrCreateConversation(sessionId, {
@@ -3192,10 +3222,10 @@ export class LcmContextEngine implements ContextEngine {
               `[lcm] commitTurn: transcript frontier seq=${facts.frontierSeq} precedes terminal position=${params.terminal.activeMessagePosition} ${sessionLabel}; committing the drained frontier`,
             );
           }
-          this.insertTurnAdvancementReceipt(params, payloadHash, facts.importedMessages);
+          await this.insertTurnAdvancementReceipt(params, payloadHash, facts.importedMessages);
         };
         if (params.isHeartbeat === true && !this.config.preserveHeartbeatPoll) {
-          await this.conversationStore.withTransaction(() =>
+          await this.conversationStore.withTransaction(async () =>
             writeReceipt({ frontierSeq: null, importedMessages: 0 }),
           );
           return { status: "committed" as const };
@@ -3211,7 +3241,7 @@ export class LcmContextEngine implements ContextEngine {
           finalize: writeReceipt,
         });
         if (synced.outcome.status === "missing") {
-          await this.conversationStore.withTransaction(() =>
+          await this.conversationStore.withTransaction(async () =>
             writeReceipt({ frontierSeq: null, importedMessages: 0 }),
           );
           return { status: "committed" as const };
@@ -3276,6 +3306,11 @@ export class LcmContextEngine implements ContextEngine {
     runtimeSettings?: ContextEngineRuntimeSettings;
     runtimeContext?: ContextEngineRuntimeContext;
   }): Promise<BootstrapResult> {
+    return this.withStorageAuthority(() => this.bootstrapWithAuthority(params));
+  }
+
+  private async bootstrapWithAuthority(params: Parameters<LcmContextEngine["bootstrap"]>[0]): ReturnType<LcmContextEngine["bootstrap"]> {
+    this.assertStorageAuthority(params);
     const transcriptReadTarget = resolveSessionTranscriptReadTarget(params);
     const sessionId = transcriptReadTarget?.sessionId ?? params.sessionId;
     const sessionKey = transcriptReadTarget?.sessionKey ?? params.sessionKey;
@@ -3327,6 +3362,11 @@ export class LcmContextEngine implements ContextEngine {
     runtimeContext?: ContextEngineMaintenanceRuntimeContext;
     runtimeSettings?: ContextEngineRuntimeSettings;
   }): Promise<ContextEngineMaintenanceResult> {
+    return this.withStorageAuthority(() => this.maintainWithAuthority(params));
+  }
+
+  private async maintainWithAuthority(params: Parameters<LcmContextEngine["maintain"]>[0]): ReturnType<LcmContextEngine["maintain"]> {
+    this.assertStorageAuthority(params);
     const hostApprovedRuntimeMaintenance =
       params.runtimeContext?.allowDeferredCompactionExecution === true;
     if (this.shouldIgnoreSession({ sessionId: params.sessionId, sessionKey: params.sessionKey })) {
@@ -3655,6 +3695,11 @@ export class LcmContextEngine implements ContextEngine {
     message: AgentMessage;
     isHeartbeat?: boolean;
   }): Promise<IngestResult> {
+    return this.withStorageAuthority(() => this.ingestWithAuthority(params));
+  }
+
+  private async ingestWithAuthority(params: Parameters<LcmContextEngine["ingest"]>[0]): ReturnType<LcmContextEngine["ingest"]> {
+    this.assertStorageAuthority(params);
     if (this.shouldIgnoreSession({ sessionId: params.sessionId, sessionKey: params.sessionKey })) {
       return { ingested: false };
     }
@@ -3677,7 +3722,7 @@ export class LcmContextEngine implements ContextEngine {
     }
     return this.withSessionQueue(
       this.resolveSessionQueueKey(params.sessionId, params.sessionKey),
-      () => this.ingestSingle(params),
+      async () => this.ingestSingle(params),
       {
         operationName: "ingest",
         context: [
@@ -3694,6 +3739,11 @@ export class LcmContextEngine implements ContextEngine {
     messages: AgentMessage[];
     isHeartbeat?: boolean;
   }): Promise<IngestBatchResult> {
+    return this.withStorageAuthority(() => this.ingestBatchWithAuthority(params));
+  }
+
+  private async ingestBatchWithAuthority(params: Parameters<LcmContextEngine["ingestBatch"]>[0]): ReturnType<LcmContextEngine["ingestBatch"]> {
+    this.assertStorageAuthority(params);
     if (this.shouldIgnoreSession({ sessionId: params.sessionId, sessionKey: params.sessionKey })) {
       return { ingestedCount: 0 };
     }
@@ -3999,8 +4049,8 @@ export class LcmContextEngine implements ContextEngine {
    * Return true when this advancement key already has a receipt for the same
    * payload (current or beta.1 hash); throw on a key reused with a different payload.
    */
-  private findTurnAdvancementReceipt(params: CommitTurnParams, payloadHash: string): boolean {
-    const existing = this.db
+  private async findTurnAdvancementReceipt(params: CommitTurnParams, payloadHash: string): Promise<boolean> {
+    const existing = await this.db
       .prepare(
         `SELECT payload_hash
          FROM turn_advancements
@@ -4021,12 +4071,12 @@ export class LcmContextEngine implements ContextEngine {
   }
 
   /** Record the idempotency receipt for one committed turn. */
-  private insertTurnAdvancementReceipt(
+  private async insertTurnAdvancementReceipt(
     params: CommitTurnParams,
     payloadHash: string,
     messageCount: number,
-  ): void {
-    this.db
+  ): Promise<void> {
+    await this.db
       .prepare(
         `INSERT INTO turn_advancements (
            advancement_key,
@@ -4056,6 +4106,11 @@ export class LcmContextEngine implements ContextEngine {
    * configured to skip LCM writes acknowledge the turn as an idempotent no-op.
    */
   async commitTurn(params: CommitTurnParams): Promise<{ status: "committed" | "duplicate" }> {
+    return this.withStorageAuthority(() => this.commitTurnWithAuthority(params));
+  }
+
+  private async commitTurnWithAuthority(params: Parameters<LcmContextEngine["commitTurn"]>[0]): ReturnType<LcmContextEngine["commitTurn"]> {
+    this.assertStorageAuthority(params);
     assertValidTurnAdvancement(params);
     const sessionId = params.admission.sessionId;
     const sessionKey = params.admission.sessionKey;
@@ -4115,6 +4170,11 @@ export class LcmContextEngine implements ContextEngine {
     /** Back-compat param name. */
     legacyCompactionParams?: Record<string, unknown>;
   }): Promise<void> {
+    return this.withStorageAuthority(() => this.afterTurnWithAuthority(params));
+  }
+
+  private async afterTurnWithAuthority(params: Parameters<LcmContextEngine["afterTurn"]>[0]): ReturnType<LcmContextEngine["afterTurn"]> {
+    this.assertStorageAuthority(params);
     const transcriptReadTarget = resolveSessionTranscriptReadTarget(params);
     const sessionId = transcriptReadTarget?.sessionId ?? params.sessionId;
     const sessionKey = transcriptReadTarget?.sessionKey ?? params.sessionKey;
@@ -4308,7 +4368,7 @@ export class LcmContextEngine implements ContextEngine {
     // Split stored observations into restorable identities and unobserved ids.
     const identities = new Map<string, UserReplayIdentity>();
     const unobserved: string[] = [];
-    for (const state of this.userReplayKeyStore.listRawUserContextKeys(params.conversationId)) {
+    for (const state of (await this.userReplayKeyStore.listRawUserContextKeys(params.conversationId))) {
       if (!state.observed) {
         unobserved.push(state.entryId);
       } else if (state.observed.idempotencyKey) {
@@ -4343,8 +4403,8 @@ export class LcmContextEngine implements ContextEngine {
           : { idempotencyKey: "", signature: "" }),
       };
     });
-    await this.conversationStore.withTransaction(() =>
-      this.userReplayKeyStore.record(params.conversationId, observed),
+    await this.conversationStore.withTransaction(async () =>
+      (await this.userReplayKeyStore.record(params.conversationId, observed)),
     );
     for (const { entryId, ...identity } of observed) {
       if (identity.idempotencyKey) {
@@ -4374,6 +4434,11 @@ export class LcmContextEngine implements ContextEngine {
     runtimeContext?: Record<string, unknown>;
     runtimeSettings?: ContextEngineRuntimeSettings;
   }): Promise<AssembleResult> {
+    return this.withStorageAuthority(() => this.assembleWithAuthority(params));
+  }
+
+  private async assembleWithAuthority(params: Parameters<LcmContextEngine["assemble"]>[0]): ReturnType<LcmContextEngine["assemble"]> {
+    this.assertStorageAuthority(params);
     let liveMessages = params.messages;
     // Return a new fallback array so the runtime hook treats this as assembled
     // context, and strip assistant prefill tails from fallback-only paths.
@@ -4396,6 +4461,7 @@ export class LcmContextEngine implements ContextEngine {
     if (this.shouldIgnoreSession({ sessionId: params.sessionId, sessionKey: params.sessionKey })) {
       return safeFallback();
     }
+    let assemblySnapshot: Awaited<ReturnType<typeof loadContextSnapshot>> | undefined;
     try {
       this.ensureMigrated();
       const startedAt = Date.now();
@@ -4518,7 +4584,7 @@ export class LcmContextEngine implements ContextEngine {
         tokenBudget,
         contextThreshold: resolvedContextThreshold,
         measure: async () => {
-          const projection = await this.assembler.assemble({
+          const projection = await this.assembleStoredContext({
             ...assemblyInput, tokenBudget: Number.MAX_SAFE_INTEGER,
           });
           // A complete raw prefix proves where unpersisted live input starts.
@@ -4549,8 +4615,9 @@ export class LcmContextEngine implements ContextEngine {
         },
       });
 
-      const contextItems = await this.summaryStore.getContextItems(conversation.conversationId);
-      const activeFocusBrief = await this.focusBriefStore.getActiveFocusBrief(
+      if (isPostgresDatabase(this.db)) assemblySnapshot = await loadContextSnapshot(this.db, conversation.conversationId);
+      const contextItems = await (assemblySnapshot?.summaryStore ?? this.summaryStore).getContextItems(conversation.conversationId);
+      const activeFocusBrief = await (assemblySnapshot?.focusBriefStore ?? this.focusBriefStore).getActiveFocusBrief(
         conversation.conversationId,
       );
       const contextProjection = {
@@ -4583,7 +4650,7 @@ export class LcmContextEngine implements ContextEngine {
           contextProjection,
         };
       };
-      const storedContextTokens = await this.summaryStore.getContextTokenCount(
+      const storedContextTokens = await (assemblySnapshot?.summaryStore ?? this.summaryStore).getContextTokenCount(
         conversation.conversationId,
       );
       if (foregroundRelief?.deferred && !foregroundRelief.reachedTarget && liveMessages.length > 0 && foregroundRelief.pressure > Math.floor(tokenBudget * DEFERRED_ASSEMBLY_PRESSURE_RATIO)) {
@@ -4618,10 +4685,10 @@ export class LcmContextEngine implements ContextEngine {
         return boundedLiveFallback("coverage-trails-live");
       }
 
-      const assembled = await this.assembler.assemble({
+      const assembled = await this.assembleStoredContext({
         ...assemblyInput,
         tokenBudget,
-      });
+      }, assemblySnapshot);
 
 
       const preRecallMessages = [...assembled.messages, ...unpersistedLiveSuffix];
@@ -4833,6 +4900,7 @@ export class LcmContextEngine implements ContextEngine {
       };
       return result;
     } catch (err) {
+      if (isPostgresDatabase(this.db)) throw err;
       this.deps.log.debug(
         `[lcm] assemble: failed for session=${params.sessionId}${params.sessionKey?.trim() ? ` sessionKey=${params.sessionKey.trim()}` : ""} error=${describeLogError(err)}`,
       );
@@ -4857,7 +4925,7 @@ export class LcmContextEngine implements ContextEngine {
         );
       }
       return { messages: clamp.messages, estimatedTokens: clamp.serializedTokens };
-    }
+    } finally { assemblySnapshot?.close(); }
   }
 
   /** Evaluate diagnostic raw-history pressure outside the protected fresh tail. */
@@ -4923,7 +4991,7 @@ export class LcmContextEngine implements ContextEngine {
     if (synced.outcome.status !== "synced") {
       throw new Error(`overflow transcript sync ${synced.outcome.status}${synced.outcome.detail ? `: ${synced.outcome.detail}` : ""}`);
     }
-    return this.conversationStore.withTransaction(() =>
+    return this.conversationStore.withTransaction(async () =>
       this.verifyOverflowTurnCoverage(synced.conversationId, entries, latestUserIndex),
     );
   }
@@ -4947,7 +5015,7 @@ export class LcmContextEngine implements ContextEngine {
     const storedIds = await this.conversationStore.filterExistingTranscriptEntryIds(conversationId, [...turnIds]);
     const context = await this.summaryStore.getContextItems(conversationId);
     const raw = await Promise.all(context.filter((item) => item.messageId != null)
-      .map((item) => this.conversationStore.getMessageById(item.messageId!)));
+      .map(async (item) => this.conversationStore.getMessageById(item.messageId!)));
     const userIndex = raw.findLastIndex((message) => message?.role === "user");
     if (storedIds.size !== turnIds.size || userIndex < 0 ||
         raw[userIndex]?.transcriptEntryId !== ids[latestUserIndex] ||
@@ -4986,6 +5054,11 @@ export class LcmContextEngine implements ContextEngine {
     /** Host idle-timeout refresh; requires "onProgress" in acceptedHostParams. */
     onProgress?: () => void;
   }): Promise<CompactResult> {
+    return this.withStorageAuthority(() => this.compactWithAuthority(params));
+  }
+
+  private async compactWithAuthority(params: Parameters<LcmContextEngine["compact"]>[0]): ReturnType<LcmContextEngine["compact"]> {
+    this.assertStorageAuthority(params);
     const recoveryTarget = params.force === true && params.compactionTarget === "budget"
       ? resolveSessionTranscriptReadTarget(params)
       : undefined;
@@ -5097,6 +5170,11 @@ export class LcmContextEngine implements ContextEngine {
     childSessionFile?: string;
     ttlMs?: number;
   }): Promise<SubagentSpawnPreparation | undefined> {
+    return this.withStorageAuthority(() => this.prepareSubagentSpawnWithAuthority(params));
+  }
+
+  private async prepareSubagentSpawnWithAuthority(params: Parameters<LcmContextEngine["prepareSubagentSpawn"]>[0]): ReturnType<LcmContextEngine["prepareSubagentSpawn"]> {
+    this.assertStorageAuthority(params);
     if (
       this.shouldIgnoreSession({ sessionKey: params.parentSessionKey })
       || this.shouldIgnoreSession({ sessionKey: params.childSessionKey })
@@ -5124,14 +5202,14 @@ export class LcmContextEngine implements ContextEngine {
         : undefined;
 
     // Inherit scope from parent grant if one exists (prevents privilege escalation)
-    const parentGrantId = resolveDelegatedExpansionGrantId(parentSessionKey);
+    const parentGrantId = (await resolveDelegatedExpansionGrantId(parentSessionKey));
     const parentGrant = parentGrantId
-      ? getRuntimeExpansionAuthManager().getGrant(parentGrantId)
+      ? (await getRuntimeExpansionAuthManager().getGrant(parentGrantId))
       : null;
 
     const childTokenCap = parentGrant
       ? Math.min(
-          getRuntimeExpansionAuthManager().getRemainingTokenBudget(parentGrantId!) ?? this.config.maxExpandTokens,
+          (await getRuntimeExpansionAuthManager().getRemainingTokenBudget(parentGrantId!)) ?? this.config.maxExpandTokens,
           this.config.maxExpandTokens,
         )
       : this.config.maxExpandTokens;
@@ -5144,7 +5222,7 @@ export class LcmContextEngine implements ContextEngine {
       ? parentGrant.allowedSummaryIds
       : undefined;
 
-    createDelegatedExpansionGrant({
+    (await createDelegatedExpansionGrant({
       delegatedSessionKey: childSessionKey,
       issuerSessionId: parentSessionKey,
       allowedConversationIds: [conversationId],
@@ -5152,11 +5230,11 @@ export class LcmContextEngine implements ContextEngine {
       tokenCap: childTokenCap,
       maxDepth: childMaxDepth,
       ttlMs,
-    });
+    }));
 
     return {
-      rollback: () => {
-        revokeDelegatedExpansionGrantForSession(childSessionKey, { removeBinding: true });
+      rollback: async () => {
+        (await revokeDelegatedExpansionGrantForSession(childSessionKey, { removeBinding: true }));
       },
     };
   }
@@ -5165,6 +5243,11 @@ export class LcmContextEngine implements ContextEngine {
     childSessionKey: string;
     reason: SubagentEndReason;
   }): Promise<void> {
+    return this.withStorageAuthority(() => this.onSubagentEndedWithAuthority(params));
+  }
+
+  private async onSubagentEndedWithAuthority(params: Parameters<LcmContextEngine["onSubagentEnded"]>[0]): ReturnType<LcmContextEngine["onSubagentEnded"]> {
+    this.assertStorageAuthority(params);
     if (
       this.shouldIgnoreSession({ sessionKey: params.childSessionKey })
       || this.isStatelessSession(params.childSessionKey)
@@ -5178,14 +5261,14 @@ export class LcmContextEngine implements ContextEngine {
 
     switch (params.reason) {
       case "deleted":
-        revokeDelegatedExpansionGrantForSession(childSessionKey, { removeBinding: true });
+        (await revokeDelegatedExpansionGrantForSession(childSessionKey, { removeBinding: true }));
         break;
       case "completed":
-        revokeDelegatedExpansionGrantForSession(childSessionKey);
+        (await revokeDelegatedExpansionGrantForSession(childSessionKey));
         break;
       case "released":
       case "swept":
-        removeDelegatedExpansionGrantForSession(childSessionKey);
+        (await removeDelegatedExpansionGrantForSession(childSessionKey));
         break;
     }
   }
@@ -5300,6 +5383,11 @@ export class LcmContextEngine implements ContextEngine {
     sessionId?: string;
     sessionKey?: string;
   }): Promise<void> {
+    return this.withStorageAuthority(() => this.handleBeforeResetWithAuthority(params));
+  }
+
+  private async handleBeforeResetWithAuthority(params: Parameters<LcmContextEngine["handleBeforeReset"]>[0]): ReturnType<LcmContextEngine["handleBeforeReset"]> {
+    this.assertStorageAuthority(params);
     const reason = params.reason?.trim();
     if (reason !== HOST_BEFORE_RESET_REASON_NEW && reason !== HOST_BEFORE_RESET_REASON_RESET) {
       return;
@@ -5356,6 +5444,11 @@ export class LcmContextEngine implements ContextEngine {
     nextSessionId?: string;
     nextSessionKey?: string;
   }): Promise<void> {
+    return this.withStorageAuthority(() => this.handleSessionEndWithAuthority(params));
+  }
+
+  private async handleSessionEndWithAuthority(params: Parameters<LcmContextEngine["handleSessionEnd"]>[0]): ReturnType<LcmContextEngine["handleSessionEnd"]> {
+    this.assertStorageAuthority(params);
     const reason = params.reason?.trim();
     if (
       !reason ||
@@ -5406,12 +5499,22 @@ export class LcmContextEngine implements ContextEngine {
           });
         }),
     );
-  }
 
+    }
+
+
+  private async assembleStoredContext(input: Parameters<ContextAssembler["assemble"]>[0], suppliedSnapshot?: Awaited<ReturnType<typeof loadContextSnapshot>>) {
+    if (!isPostgresDatabase(this.db)) return this.assembler.assemble(input);
+    const snapshot = suppliedSnapshot ?? await loadContextSnapshot(this.db, input.conversationId);
+    try {
+      return await new ContextAssembler(snapshot.conversationStore, snapshot.summaryStore, this.config.timezone, snapshot.focusBriefStore, this.deps.log).assemble(input);
+    } finally { if(!suppliedSnapshot) snapshot.close(); }
+  }
 
   // ── Public accessors for retrieval (used by subagent expansion) ─────────
 
   getControlCapabilities(): ContextEngineControlCapabilities {
+    if(isPostgresDatabase(this.db))return {status:true,doctor:false,rotate:false};
     return getLcmProgrammaticControlCapabilities({
       deps: this.deps,
       getLcm: async () => this,
@@ -5419,6 +5522,16 @@ export class LcmContextEngine implements ContextEngine {
   }
 
   async control(params: ContextEngineControlRequest): Promise<ContextEngineControlResult> {
+    return this.withStorageAuthority(() => this.controlWithAuthority(params));
+  }
+
+  private async controlWithAuthority(params: Parameters<LcmContextEngine["control"]>[0]): ReturnType<LcmContextEngine["control"]> {
+    this.assertStorageAuthority(params);
+    if (isPostgresDatabase(this.db)) {
+      if (params.operation === "doctor") return { operation: "doctor", ok: false, warnings: ["SQLite doctor/repair is unavailable on PostgreSQL; use PostgreSQL integrity checks"] };
+      const conversation = params.sessionKey ? await this.conversationStore.getConversationBySessionKey(params.sessionKey) : params.sessionId ? await this.conversationStore.getConversationBySessionId(params.sessionId) : null;
+      return { operation: "status", active: !!conversation, messageCount: conversation ? await this.conversationStore.getMessageCount(conversation.conversationId) : 0 };
+    }
     return runLcmProgrammaticControl({
       operation: params.operation,
       ctx: {

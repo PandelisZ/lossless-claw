@@ -113,7 +113,7 @@ export async function runPendingSummaryStaleRecoveryProof(): Promise<PendingSumm
     },
     summarize: async (sourceText) => `stale-proof summary over:\n${sourceText}`,
   });
-  const runOnce = () => coordinator.runOnce({ conversationId: conversation.conversationId });
+  const runOnce = async () => coordinator.runOnce({ conversationId: conversation.conversationId });
 
   // Prepare the single leaf covering the two compactable messages.
   const planned = await runOnce();

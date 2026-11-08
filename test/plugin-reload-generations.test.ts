@@ -118,22 +118,22 @@ describe("plugin reload across generations", () => {
     const dbPath = tempDbPath(dbPaths);
 
     const first = await loadGeneration(dbPath);
-    const grant = first.auth.createDelegatedExpansionGrant({
+    const grant = (await first.auth.createDelegatedExpansionGrant({
       delegatedSessionKey: CHILD_SESSION_KEY,
       issuerSessionId: "agent:main:main",
       allowedConversationIds: [42],
       tokenCap: 900,
-    });
-    first.auth.getRuntimeExpansionAuthManager().consumeTokenBudget(grant.grantId, 100);
+    }));
+    (await first.auth.getRuntimeExpansionAuthManager().consumeTokenBudget(grant.grantId, 100));
     await retireGeneration(first);
 
     const second = await loadGeneration(dbPath);
     expect(second.auth).not.toBe(first.auth);
-    const grantId = second.auth.resolveDelegatedExpansionGrantId(CHILD_SESSION_KEY);
+    const grantId = (await second.auth.resolveDelegatedExpansionGrantId(CHILD_SESSION_KEY));
     expect(grantId).toBe(grant.grantId);
     const manager = second.auth.getRuntimeExpansionAuthManager();
-    expect(manager.getGrant(grant.grantId)?.allowedConversationIds).toEqual([42]);
-    expect(manager.getRemainingTokenBudget(grant.grantId)).toBe(800);
+    expect((await manager.getGrant(grant.grantId))?.allowedConversationIds).toEqual([42]);
+    expect((await manager.getRemainingTokenBudget(grant.grantId))).toBe(800);
 
     const expand = second.tools.get("lcm_expand")?.({ sessionKey: CHILD_SESSION_KEY });
     const result = JSON.stringify(await expand?.execute("call-1", { summaryIds: ["sum_missing"] }));

@@ -1,4 +1,6 @@
-# Local fork qualification
+# Historical standalone qualification
+
+These results describe the earlier standalone store, before the native engine port. Current native gateway evidence is in [NATIVE-RESULTS.md](NATIVE-RESULTS.md). Statements below about missing native APIs apply to that earlier prototype.
 
 Native source: `51c3c90bfe82fa649e4895dd1a2c4874b5e28f76` (upstream main, version 1.2.0).
 This is a separate baseline from the published v1.2.0 tag; default native files and OpenClaw metadata are unchanged.
